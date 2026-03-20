@@ -11,13 +11,17 @@ import { calculateProfit } from "./utils/profit.js";
 const PORT = Number(process.env.PORT || 4000);
 const DEFAULT_ADMIN_KEY = process.env.ADMIN_KEY || "admin123";
 
-function buildLeaderboard(game) {
-  return Array.from(game.players.values())
-    .map((player) => ({
-      nickname: player.nickname,
-      cumulativeProfit: player.cumulativeProfit,
-      roundsPlayed: player.history.length
-    }))
+function calculateLeaderboard(players) {
+  return Array.from(players.values())
+    .map((player) => {
+      const cumulativeProfit = player.history.reduce((sum, entry) => sum + entry.profit, 0);
+
+      return {
+        nickname: player.nickname,
+        cumulativeProfit,
+        roundsPlayed: player.history.length
+      };
+    })
     .sort((a, b) => b.cumulativeProfit - a.cumulativeProfit)
     .map((row, index) => ({ rank: index + 1, ...row }));
 }
@@ -88,7 +92,8 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
         currentRoundIndex: 0,
         roundPhase: "pending",
         distribution: { type: "uniform", min: 80, max: 120 },
-        distributionHistory: []
+        distributionHistory: [],
+        leaderboard: []
       };
 
       activeGame.distributionHistory.push({
@@ -125,6 +130,10 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
     };
 
     activeGame.players.set(player.id, player);
+
+    if (activeGame.roundPhase === "pending") {
+      activeGame.leaderboard = calculateLeaderboard(activeGame.players);
+    }
 
     emitGameEvent(activeGame, "player_joined", {
       playerId: player.id,
@@ -306,6 +315,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
 
     activeGame.roundPhase = "pending";
     activeGame.currentRoundIndex += 1;
+    activeGame.leaderboard = calculateLeaderboard(activeGame.players);
 
     const nextRound = getRoundForGame(activeGame);
     const finished = nextRound === null;
@@ -317,7 +327,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       nextRound,
       roundPhase: activeGame.roundPhase,
       distribution: activeGame.distribution,
-      leaderboard: buildLeaderboard(activeGame)
+      leaderboard: activeGame.leaderboard
     });
   });
 
@@ -364,7 +374,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
     return res.json({
       gameId: activeGame.id,
       createdAt: activeGame.createdAt,
-      leaderboard: buildLeaderboard(activeGame)
+      leaderboard: activeGame.leaderboard
     });
   });
 

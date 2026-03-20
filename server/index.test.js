@@ -216,6 +216,57 @@ test("admin can end round and leaderboard is returned", async () => {
   assert.equal(endRound.body.leaderboard[0].nickname, "admin-player");
 });
 
+test("leaderboard does not update during active round and updates after round ends", async () => {
+  const app = createApp({ adminKey: ADMIN_KEY });
+
+  const admin = await request(app).post("/start-game").send({
+    nickname: "admin-player",
+    adminKey: ADMIN_KEY
+  });
+
+  const user = await request(app).post("/start-game").send({
+    nickname: "joined-user",
+    gameId: admin.body.gameId
+  });
+
+  const startRoundResponse = await request(app).post("/start-round").send({
+    gameId: admin.body.gameId,
+    adminToken: admin.body.adminToken
+  });
+
+  assert.equal(startRoundResponse.status, 200);
+
+  const submitResponse = await request(app).post("/submit-order").send({
+    gameId: admin.body.gameId,
+    playerId: user.body.playerId,
+    orderQuantity: 1000
+  });
+
+  assert.equal(submitResponse.status, 200);
+
+  const leaderboardWhileActive = await request(app)
+    .get("/leaderboard")
+    .query({ gameId: admin.body.gameId });
+
+  assert.equal(leaderboardWhileActive.status, 200);
+  assert.ok(
+    leaderboardWhileActive.body.leaderboard.every((row) => row.roundsPlayed === 0)
+  );
+  assert.ok(
+    leaderboardWhileActive.body.leaderboard.every((row) => row.cumulativeProfit === 0)
+  );
+
+  const endRoundResponse = await request(app).post("/end-round").send({
+    gameId: admin.body.gameId,
+    adminToken: admin.body.adminToken
+  });
+
+  assert.equal(endRoundResponse.status, 200);
+  assert.ok(
+    endRoundResponse.body.leaderboard.some((row) => row.roundsPlayed === 1)
+  );
+});
+
 test("can play 5 turns back-to-back and finish game", async () => {
   const app = createApp({ adminKey: ADMIN_KEY });
 
