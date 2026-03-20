@@ -112,14 +112,17 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       (player) => player.nickname.toLowerCase() === nickname.toLowerCase()
     );
 
-    const player =
-      existingPlayer || {
-        id: randomUUID(),
-        nickname,
-        currentRoundIndex: 0,
-        cumulativeProfit: 0,
-        history: []
-      };
+    if (existingPlayer) {
+      return res.status(409).json({ error: "this username is taken" });
+    }
+
+    const player = {
+      id: randomUUID(),
+      nickname,
+      currentRoundIndex: 0,
+      cumulativeProfit: 0,
+      history: []
+    };
 
     activeGame.players.set(player.id, player);
 

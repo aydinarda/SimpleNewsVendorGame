@@ -38,6 +38,40 @@ test("joins active room with 200 status", async () => {
   assert.equal(joinRoom.body.gameId, createRoom.body.gameId);
 });
 
+test("duplicate usernames are rejected in the same active game", async () => {
+  const app = createApp({ adminKey: ADMIN_KEY });
+
+  const admin = await request(app).post("/start-game").send({
+    nickname: "admin-player",
+    adminKey: ADMIN_KEY
+  });
+
+  assert.equal(admin.status, 200);
+
+  const duplicateAdminName = await request(app).post("/start-game").send({
+    nickname: "admin-player",
+    gameId: admin.body.gameId
+  });
+
+  assert.equal(duplicateAdminName.status, 409);
+  assert.equal(duplicateAdminName.body.error, "this username is taken");
+
+  const user = await request(app).post("/start-game").send({
+    nickname: "unique-player",
+    gameId: admin.body.gameId
+  });
+
+  assert.equal(user.status, 200);
+
+  const duplicateUserName = await request(app).post("/start-game").send({
+    nickname: "unique-player",
+    gameId: admin.body.gameId
+  });
+
+  assert.equal(duplicateUserName.status, 409);
+  assert.equal(duplicateUserName.body.error, "this username is taken");
+});
+
 test("joining inactive room returns error", async () => {
   const app = createApp({ adminKey: ADMIN_KEY });
 
@@ -327,14 +361,13 @@ test("admin can change min-max and joined user sees updated distribution", async
   assert.equal(distributionUpdate.body.distribution.min, 95);
   assert.equal(distributionUpdate.body.distribution.max, 135);
 
-  const userRefresh = await request(app).post("/start-game").send({
-    nickname: "joined-user",
-    gameId: admin.body.gameId
-  });
+  const userRefreshState = await request(app)
+    .get("/game-state")
+    .query({ gameId: admin.body.gameId, playerId: userJoin.body.playerId });
 
-  assert.equal(userRefresh.status, 200);
-  assert.equal(userRefresh.body.distribution.min, 95);
-  assert.equal(userRefresh.body.distribution.max, 135);
+  assert.equal(userRefreshState.status, 200);
+  assert.equal(userRefreshState.body.distribution.min, 95);
+  assert.equal(userRefreshState.body.distribution.max, 135);
 
   const startRoundResponse = await request(app).post("/start-round").send({
     gameId: admin.body.gameId,
@@ -347,7 +380,7 @@ test("admin can change min-max and joined user sees updated distribution", async
 
   const userSubmit = await request(app).post("/submit-order").send({
     gameId: admin.body.gameId,
-    playerId: userRefresh.body.playerId,
+    playerId: userJoin.body.playerId,
     orderQuantity: 1000
   });
 
