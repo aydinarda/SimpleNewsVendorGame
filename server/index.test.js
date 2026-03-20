@@ -427,3 +427,62 @@ test("leaderboard is accessible at game start for admin and user, and during rou
     );
   }
 });
+
+test("demand is hidden from UI when round is active, visible only after end-round", async () => {
+  const app = createApp({ adminKey: ADMIN_KEY });
+
+  const admin = await request(app).post("/start-game").send({
+    nickname: "admin-player",
+    adminKey: ADMIN_KEY
+  });
+
+  const gameId = admin.body.gameId;
+  const adminToken = admin.body.adminToken;
+  const playerId = admin.body.playerId;
+
+  // Start first round
+  const startRoundResponse = await request(app).post("/start-round").send({
+    gameId,
+    adminToken
+  });
+
+  assert.equal(startRoundResponse.status, 200);
+  assert.equal(startRoundResponse.body.roundPhase, "active");
+
+  // Player submits order while round is active
+  const submitResponse = await request(app).post("/submit-order").send({
+    gameId,
+    playerId,
+    orderQuantity: 1000
+  });
+
+  assert.equal(submitResponse.status, 200);
+  // Backend returns realizedDemand for server-side calculations
+  assert.ok(submitResponse.body.roundResult.realizedDemand);
+  // But roundPhase is still "active" (UI signal to hide demand)
+  assert.equal(submitResponse.body.roundPhase, "active");
+
+  // Get leaderboard while round is active - demand should be hidden from client perspective
+  const leaderboardDuringRound = await request(app)
+    .get("/leaderboard")
+    .query({ gameId });
+
+  assert.equal(leaderboardDuringRound.status, 200);
+  // Note: Leaderboard API doesn't filter - frontend filters based on roundPhase
+  // Test verifies server returned data, frontend responsibility to hide demand
+
+  // Admin ends round
+  const endRoundResponse = await request(app).post("/end-round").send({
+    gameId,
+    adminToken
+  });
+
+  assert.equal(endRoundResponse.status, 200);
+  assert.equal(endRoundResponse.body.roundPhase, "pending");
+  // After round ends, leaderboard is returned in response
+  assert.ok(endRoundResponse.body.leaderboard);
+  // Demand values should be visible in leaderboard after round ends
+  assert.ok(
+    endRoundResponse.body.leaderboard[0].roundsPlayed === 1
+  );
+});

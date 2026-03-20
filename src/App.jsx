@@ -135,13 +135,13 @@ function App() {
         setDistributionMax(data.distribution.max);
       }
       setLeaderboardRows(data.leaderboard || []);
+      setLastRoundResult(null);
       setStatusMessage(
         data.finished
           ? "Final round ended. Leaderboard is ready."
           : `Round ended. Next round is ${data.nextRound?.id}.`
       );
       setIsRoundSubmitted(false);
-      setLastRoundResult(null);
     } catch (error) {
       setErrorMessage(error.message);
     }
@@ -353,7 +353,13 @@ function App() {
         </>
       ) : null}
 
-      <RoundResult result={lastRoundResult} />
+      {isRoundSubmitted && roundPhase === "active" ? (
+        <section className="card">
+          <p className="status-line">Order submitted. Waiting for round to end...</p>
+        </section>
+      ) : null}
+
+      {roundPhase === "pending" ? <RoundResult result={lastRoundResult} /> : null}
 
       {statusMessage ? <p className="status-line">{statusMessage}</p> : null}
       {errorMessage ? <p className="error-text">{errorMessage}</p> : null}

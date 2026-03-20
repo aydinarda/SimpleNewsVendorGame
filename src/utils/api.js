@@ -9,10 +9,16 @@ async function request(path, options = {}) {
     ...options
   });
 
-  const payload = await response.json();
+  let payload;
+  try {
+    payload = await response.json();
+  } catch (parseError) {
+    const text = await response.text();
+    throw new Error(`Server error: ${response.status} ${response.statusText}. ${text.substring(0, 100)}`);
+  }
 
   if (!response.ok) {
-    throw new Error(payload.error || "Request failed");
+    throw new Error(payload.error || `Request failed with status ${response.status}`);
   }
 
   return payload;
