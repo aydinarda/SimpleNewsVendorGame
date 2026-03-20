@@ -1,7 +1,9 @@
 import express from "express";
 import cors from "cors";
+import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { WebSocketServer } from "ws";
 import { rounds } from "./rounds.js";
 import { sampleDemand } from "./utils/demand.js";
 import { calculateProfit } from "./utils/profit.js";
@@ -37,9 +39,25 @@ function getRoundForGame(game) {
   };
 }
 
-export function createApp({ adminKey = DEFAULT_ADMIN_KEY } = {}) {
+export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
   const app = express();
   let activeGame = null;
+
+  const emitGameEvent = (game, type, extra = {}) => {
+    if (typeof onGameEvent !== "function" || !game) {
+      return;
+    }
+
+    onGameEvent({
+      type,
+      gameId: game.id,
+      roundPhase: game.roundPhase,
+      currentRound: getRoundForGame(game),
+      distribution: game.distribution,
+      timestamp: new Date().toISOString(),
+      ...extra
+    });
+  };
 
   app.use(cors());
   app.use(express.json());
@@ -105,6 +123,11 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY } = {}) {
 
     activeGame.players.set(player.id, player);
 
+    emitGameEvent(activeGame, "player_joined", {
+      playerId: player.id,
+      nickname: player.nickname
+    });
+
     return res.json({
       gameId: activeGame.id,
       adminToken: requestedAdminKey ? activeGame.adminToken : undefined,
@@ -157,6 +180,8 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY } = {}) {
       updatedAt: new Date().toISOString()
     });
 
+    emitGameEvent(activeGame, "distribution_updated");
+
     return res.json({
       gameId: activeGame.id,
       distribution: activeGame.distribution,
@@ -185,6 +210,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY } = {}) {
     }
 
     activeGame.roundPhase = "active";
+    emitGameEvent(activeGame, "round_started");
 
     return res.json({
       gameId: activeGame.id,
@@ -244,6 +270,12 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY } = {}) {
     player.history.push(roundResult);
     player.cumulativeProfit += roundResult.profit;
 
+    emitGameEvent(activeGame, "order_submitted", {
+      playerId: player.id,
+      nickname: player.nickname,
+      roundsPlayed: player.history.length
+    });
+
     return res.json({
       roundResult,
       cumulativeProfit: player.cumulativeProfit,
@@ -274,6 +306,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY } = {}) {
 
     const nextRound = getRoundForGame(activeGame);
     const finished = nextRound === null;
+    emitGameEvent(activeGame, "round_ended", { finished });
 
     return res.json({
       gameId: activeGame.id,
@@ -282,6 +315,39 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY } = {}) {
       roundPhase: activeGame.roundPhase,
       distribution: activeGame.distribution,
       leaderboard: buildLeaderboard(activeGame)
+    });
+  });
+
+  app.get("/game-state", (req, res) => {
+    const gameId = req.query.gameId;
+    const playerId = req.query.playerId;
+
+    if (!activeGame || gameId !== activeGame.id) {
+      return res.status(400).json({ error: "invalid or inactive game id" });
+    }
+
+    const player = playerId ? activeGame.players.get(playerId) : null;
+    if (playerId && !player) {
+      return res.status(404).json({ error: "player not found" });
+    }
+
+    const currentRound = getRoundForGame(activeGame);
+
+    return res.json({
+      gameId: activeGame.id,
+      roundPhase: activeGame.roundPhase,
+      currentRound,
+      totalRounds: rounds.length,
+      distribution: activeGame.distribution,
+      finished: currentRound === null,
+      player: player
+        ? {
+            id: player.id,
+            nickname: player.nickname,
+            roundsPlayed: player.history.length,
+            cumulativeProfit: player.cumulativeProfit
+          }
+        : undefined
     });
   });
 
@@ -302,10 +368,70 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY } = {}) {
   return app;
 }
 
-const app = createApp();
-
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  app.listen(PORT, () => {
+  const clients = new Set();
+
+  const server = http.createServer(
+    createApp({
+      onGameEvent: (eventPayload) => {
+        const message = JSON.stringify({ type: "game_event", payload: eventPayload });
+
+        for (const ws of clients) {
+          if (ws.readyState !== 1) {
+            continue;
+          }
+
+          if (!ws.subscription || ws.subscription.gameId !== eventPayload.gameId) {
+            continue;
+          }
+
+          ws.send(message);
+        }
+      }
+    })
+  );
+
+  const wss = new WebSocketServer({ noServer: true });
+
+  wss.on("connection", (ws) => {
+    ws.subscription = null;
+    clients.add(ws);
+
+    ws.on("message", (raw) => {
+      try {
+        const incoming = JSON.parse(String(raw));
+
+        if (incoming?.type === "subscribe" && typeof incoming?.gameId === "string") {
+          ws.subscription = {
+            gameId: incoming.gameId,
+            playerId: typeof incoming.playerId === "string" ? incoming.playerId : null
+          };
+
+          ws.send(JSON.stringify({ type: "subscribed", gameId: ws.subscription.gameId }));
+        }
+      } catch (_error) {
+        ws.send(JSON.stringify({ type: "error", message: "invalid websocket payload" }));
+      }
+    });
+
+    ws.on("close", () => {
+      clients.delete(ws);
+    });
+  });
+
+  server.on("upgrade", (request, socket, head) => {
+    if (!request.url || !request.url.startsWith("/ws")) {
+      socket.destroy();
+      return;
+    }
+
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit("connection", ws, request);
+    });
+  });
+
+  server.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`WebSocket available on ws://localhost:${PORT}/ws`);
   });
 }

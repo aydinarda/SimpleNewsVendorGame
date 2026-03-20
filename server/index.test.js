@@ -486,3 +486,61 @@ test("demand is hidden from UI when round is active, visible only after end-roun
     endRoundResponse.body.leaderboard[0].roundsPlayed === 1
   );
 });
+
+test("joined users see admin start/end round changes via game-state", async () => {
+  const app = createApp({ adminKey: ADMIN_KEY });
+
+  const admin = await request(app).post("/start-game").send({
+    nickname: "admin-player",
+    adminKey: ADMIN_KEY
+  });
+
+  const user = await request(app).post("/start-game").send({
+    nickname: "joined-user",
+    gameId: admin.body.gameId
+  });
+
+  const initialState = await request(app)
+    .get("/game-state")
+    .query({ gameId: user.body.gameId, playerId: user.body.playerId });
+
+  assert.equal(initialState.status, 200);
+  assert.equal(initialState.body.roundPhase, "pending");
+  assert.equal(initialState.body.currentRound.id, 1);
+
+  const startRoundResponse = await request(app).post("/start-round").send({
+    gameId: admin.body.gameId,
+    adminToken: admin.body.adminToken
+  });
+
+  assert.equal(startRoundResponse.status, 200);
+
+  const stateAfterStart = await request(app)
+    .get("/game-state")
+    .query({ gameId: user.body.gameId, playerId: user.body.playerId });
+
+  assert.equal(stateAfterStart.status, 200);
+  assert.equal(stateAfterStart.body.roundPhase, "active");
+  assert.equal(stateAfterStart.body.currentRound.id, 1);
+
+  await request(app).post("/submit-order").send({
+    gameId: user.body.gameId,
+    playerId: user.body.playerId,
+    orderQuantity: 1000
+  });
+
+  const endRoundResponse = await request(app).post("/end-round").send({
+    gameId: admin.body.gameId,
+    adminToken: admin.body.adminToken
+  });
+
+  assert.equal(endRoundResponse.status, 200);
+
+  const stateAfterEnd = await request(app)
+    .get("/game-state")
+    .query({ gameId: user.body.gameId, playerId: user.body.playerId });
+
+  assert.equal(stateAfterEnd.status, 200);
+  assert.equal(stateAfterEnd.body.roundPhase, "pending");
+  assert.equal(stateAfterEnd.body.currentRound.id, 2);
+});

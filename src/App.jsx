@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import RoundInfo from "./components/RoundInfo";
 import OrderForm from "./components/OrderForm";
 import RoundResult from "./components/RoundResult";
@@ -6,6 +6,7 @@ import Leaderboard from "./components/Leaderboard";
 import ProgressBar from "./components/ProgressBar";
 import {
   endRound,
+  fetchGameState,
   fetchLeaderboard,
   setDistribution,
   startGame,
@@ -14,6 +15,9 @@ import {
 } from "./utils/api";
 
 function App() {
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
+  const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || API_BASE_URL.replace(/^http/, "ws");
+
   const [nicknameInput, setNicknameInput] = useState("");
   const [nickname, setNickname] = useState("");
   const [adminMode, setAdminMode] = useState(false);
@@ -45,6 +49,32 @@ function App() {
     const data = await fetchLeaderboard({ gameId: nextGameId || gameId });
     setLeaderboardRows(data.leaderboard || []);
   };
+
+  const syncGameState = useCallback(async () => {
+    if (!gameId || !playerId) {
+      return;
+    }
+
+    const data = await fetchGameState({ gameId, playerId });
+
+    setCurrentRound(data.currentRound);
+    setRoundPhase(data.roundPhase || "pending");
+    setTotalRounds(data.totalRounds || 5);
+
+    if (data.distribution) {
+      setDistributionMin(data.distribution.min);
+      setDistributionMax(data.distribution.max);
+    }
+
+    if (data.roundPhase === "pending") {
+      setIsRoundSubmitted(false);
+    }
+
+    if (showLeaderboard) {
+      const leaderboardData = await fetchLeaderboard({ gameId });
+      setLeaderboardRows(leaderboardData.leaderboard || []);
+    }
+  }, [gameId, playerId, showLeaderboard]);
 
   const handleNicknameSubmit = async (event) => {
     event.preventDefault();
@@ -190,6 +220,63 @@ function App() {
       }
     }
   };
+
+  useEffect(() => {
+    if (!gameId || !playerId) {
+      return undefined;
+    }
+
+    const syncStateSafely = async () => {
+      try {
+        await syncGameState();
+      } catch (_error) {
+        // Polling fallback stays quiet on transient issues.
+      }
+    };
+
+    syncStateSafely();
+    const intervalId = setInterval(syncStateSafely, 5000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [gameId, playerId, syncGameState]);
+
+  useEffect(() => {
+    if (!gameId || !playerId) {
+      return undefined;
+    }
+
+    const ws = new WebSocket(`${WS_BASE_URL}/ws`);
+
+    ws.addEventListener("open", () => {
+      ws.send(
+        JSON.stringify({
+          type: "subscribe",
+          gameId,
+          playerId
+        })
+      );
+    });
+
+    ws.addEventListener("message", (event) => {
+      try {
+        const message = JSON.parse(event.data);
+
+        if (message?.type === "game_event") {
+          syncGameState().catch(() => {
+            // Polling will recover eventual consistency.
+          });
+        }
+      } catch (_error) {
+        // Ignore malformed websocket messages.
+      }
+    });
+
+    return () => {
+      ws.close();
+    };
+  }, [WS_BASE_URL, gameId, playerId, syncGameState]);
 
   if (!nickname) {
     return (
@@ -364,7 +451,7 @@ function App() {
       {statusMessage ? <p className="status-line">{statusMessage}</p> : null}
       {errorMessage ? <p className="error-text">{errorMessage}</p> : null}
 
-      {isRoundSubmitted && currentRound ? (
+      {isRoundSubmitted && currentRound && roundPhase === "active" ? (
         <button type="button" className="next-round-button" onClick={handleNextRound}>
           Continue
         </button>

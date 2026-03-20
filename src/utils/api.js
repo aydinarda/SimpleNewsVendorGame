@@ -43,6 +43,11 @@ export function fetchLeaderboard({ gameId }) {
   return request(`/leaderboard?${query.toString()}`);
 }
 
+export function fetchGameState({ gameId, playerId }) {
+  const query = new URLSearchParams({ gameId, playerId });
+  return request(`/game-state?${query.toString()}`);
+}
+
 export function startRound({ gameId, adminToken }) {
   return request("/start-round", {
     method: "POST",
