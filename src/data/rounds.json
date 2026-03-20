@@ -1,0 +1,51 @@
+[
+  {
+    "id": 1,
+    "title": "Round 1 - Soft Launch",
+    "distribution": {
+      "type": "uniform",
+      "min": 800,
+      "max": 1200
+    }
+  },
+  {
+    "id": 2,
+    "title": "Round 2 - Influencer Buzz",
+    "distribution": {
+      "type": "triangular",
+      "min": 700,
+      "mode": 1150,
+      "max": 1500
+    }
+  },
+  {
+    "id": 3,
+    "title": "Round 3 - Heatwave Effect",
+    "distribution": {
+      "type": "normal",
+      "mean": 1300,
+      "stdDev": 210,
+      "min": 750,
+      "max": 1800
+    }
+  },
+  {
+    "id": 4,
+    "title": "Round 4 - Competitor Discount Week",
+    "distribution": {
+      "type": "uniform",
+      "min": 600,
+      "max": 1400
+    }
+  },
+  {
+    "id": 5,
+    "title": "Round 5 - Festival Weekend",
+    "distribution": {
+      "type": "triangular",
+      "min": 900,
+      "mode": 1600,
+      "max": 2200
+    }
+  }
+]
