@@ -66,10 +66,6 @@ function App() {
       setDistributionMax(data.distribution.max);
     }
 
-    if (data.roundPhase === "pending") {
-      setIsRoundSubmitted(false);
-    }
-
     if (showLeaderboard) {
       const leaderboardData = await fetchLeaderboard({ gameId });
       setLeaderboardRows(leaderboardData.leaderboard || []);
@@ -450,7 +446,7 @@ function App() {
       {statusMessage ? <p className="status-line">{statusMessage}</p> : null}
       {errorMessage ? <p className="error-text">{errorMessage}</p> : null}
 
-      {isRoundSubmitted && currentRound && roundPhase === "active" ? (
+      {lastRoundResult && roundPhase === "pending" ? (
         <button type="button" className="next-round-button" onClick={handleNextRound}>
           Continue
         </button>
