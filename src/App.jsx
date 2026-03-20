@@ -165,7 +165,6 @@ function App() {
         setDistributionMax(data.distribution.max);
       }
       setLeaderboardRows(data.leaderboard || []);
-      setLastRoundResult(null);
       setStatusMessage(
         data.finished
           ? "Final round ended. Leaderboard is ready."
