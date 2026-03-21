@@ -13,7 +13,15 @@ import {
   startRound,
   submitOrder
 } from "./utils/api";
+import {
+  saveGameSession,
+  loadGameSession,
+  clearGameSession,
+  updateUrlWithSession,
+  getSessionFromUrl
+} from "./utils/sessionStorage";
 
+import { clearSessionUrl } from "./utils/sessionStorage";
 function App() {
   const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
   const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || API_BASE_URL.replace(/^http/, "ws");
@@ -43,6 +51,47 @@ function App() {
     () => history.reduce((sum, row) => sum + row.profit, 0),
     [history]
   );
+
+    // Restore session on page load from URL params or localStorage
+    useEffect(() => {
+      const urlSession = getSessionFromUrl();
+      const storedSession = loadGameSession();
+      const sessionToRestore = urlSession || storedSession;
+
+      if (sessionToRestore?.gameId && sessionToRestore?.playerId) {
+        // Resume session
+        const restoreAsync = async () => {
+          try {
+            // Fetch fresh game state from server
+            const data = await fetchGameState({
+              gameId: sessionToRestore.gameId,
+              playerId: sessionToRestore.playerId
+            });
+
+            // Restore all state from fresh data
+            setGameId(sessionToRestore.gameId);
+            setPlayerId(sessionToRestore.playerId);
+            setNickname(storedSession?.nickname || "Player");
+            setIsAdmin(storedSession?.isAdmin || false);
+            setAdminToken(storedSession?.adminToken || "");
+            setCurrentRound(data.currentRound);
+            setRoundPhase(data.roundPhase || "pending");
+            setDistributionMin(data.distribution?.min ?? 80);
+            setDistributionMax(data.distribution?.max ?? 120);
+            setTotalRounds(data.totalRounds || 5);
+          
+            setStatusMessage("📍 Session restored from previous session");
+          } catch (error) {
+            console.error("Failed to restore session:", error);
+            // Clear invalid session
+            clearGameSession();
+            setErrorMessage("Failed to restore session. Please start a new game.");
+          }
+        };
+
+        restoreAsync();
+      }
+    }, []);
   const isGameFinished = Boolean(nickname) && currentRound === null;
 
   const refreshLeaderboard = async (nextGameId) => {
@@ -99,6 +148,18 @@ function App() {
       setHistory([]);
       setLastRoundResult(null);
       setIsRoundSubmitted(false);
+      
+        // Save session to localStorage and URL
+        saveGameSession({
+          gameId: data.gameId,
+          playerId: data.playerId,
+          nickname: data.nickname,
+          isAdmin: Boolean(data.adminToken),
+          adminToken: data.adminToken || "",
+          roundPhase: data.roundPhase || "pending"
+        });
+        updateUrlWithSession(data.gameId, data.playerId);
+
       setStatusMessage(
         adminMode ? "Active game created and player joined." : "Joined active game."
       );
