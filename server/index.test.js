@@ -628,3 +628,137 @@ test("joined users see admin start/end round changes via game-state", async () =
   assert.equal(stateAfterEnd.body.roundPhase, "pending");
   assert.equal(stateAfterEnd.body.currentRound.id, 2);
 });
+
+test("duplicate usernames are rejected with case-insensitive comparison", async () => {
+  const app = createApp({ adminKey: ADMIN_KEY });
+
+  const admin = await request(app).post("/start-game").send({
+    nickname: "TestPlayer",
+    adminKey: ADMIN_KEY
+  });
+
+  assert.equal(admin.status, 200);
+
+  // Try to join with different case
+  const duplicateWithDifferentCase = await request(app).post("/start-game").send({
+    nickname: "testplayer",
+    gameId: admin.body.gameId
+  });
+
+  assert.equal(duplicateWithDifferentCase.status, 409);
+  assert.equal(duplicateWithDifferentCase.body.error, "this username is taken");
+
+  // Another variation
+  const duplicateWithAllCaps = await request(app).post("/start-game").send({
+    nickname: "TESTPLAYER",
+    gameId: admin.body.gameId
+  });
+
+  assert.equal(duplicateWithAllCaps.status, 409);
+  assert.equal(duplicateWithAllCaps.body.error, "this username is taken");
+});
+
+test("admin and user cannot have the same username", async () => {
+  const app = createApp({ adminKey: ADMIN_KEY });
+
+  const admin = await request(app).post("/start-game").send({
+    nickname: "SameName",
+    adminKey: ADMIN_KEY
+  });
+
+  assert.equal(admin.status, 200);
+  assert.equal(admin.body.nickname, "SameName");
+
+  // User tries to join with admin's username
+  const userWithAdminName = await request(app).post("/start-game").send({
+    nickname: "SameName",
+    gameId: admin.body.gameId
+  });
+
+  assert.equal(userWithAdminName.status, 409);
+  assert.equal(userWithAdminName.body.error, "this username is taken");
+});
+
+test("multiple users can join with different usernames", async () => {
+  const app = createApp({ adminKey: ADMIN_KEY });
+
+  const admin = await request(app).post("/start-game").send({
+    nickname: "Admin",
+    adminKey: ADMIN_KEY
+  });
+
+  assert.equal(admin.status, 200);
+
+  const user1 = await request(app).post("/start-game").send({
+    nickname: "Player1",
+    gameId: admin.body.gameId
+  });
+
+  assert.equal(user1.status, 200);
+  assert.equal(user1.body.nickname, "Player1");
+
+  const user2 = await request(app).post("/start-game").send({
+    nickname: "Player2",
+    gameId: admin.body.gameId
+  });
+
+  assert.equal(user2.status, 200);
+  assert.equal(user2.body.nickname, "Player2");
+
+  const user3 = await request(app).post("/start-game").send({
+    nickname: "Player3",
+    gameId: admin.body.gameId
+  });
+
+  assert.equal(user3.status, 200);
+  assert.equal(user3.body.nickname, "Player3");
+
+  // Verify all players are in leaderboard
+  const leaderboard = await request(app)
+    .get("/leaderboard")
+    .query({ gameId: admin.body.gameId });
+
+  assert.equal(leaderboard.status, 200);
+  assert.equal(leaderboard.body.leaderboard.length, 4); // admin + 3 users
+  const nicknames = leaderboard.body.leaderboard.map(p => p.nickname);
+  assert.ok(nicknames.includes("Admin"));
+  assert.ok(nicknames.includes("Player1"));
+  assert.ok(nicknames.includes("Player2"));
+  assert.ok(nicknames.includes("Player3"));
+});
+
+test("duplicate names remain rejected even after round starts", async () => {
+  const app = createApp({ adminKey: ADMIN_KEY });
+
+  const admin = await request(app).post("/start-game").send({
+    nickname: "admin-player",
+    adminKey: ADMIN_KEY
+  });
+
+  assert.equal(admin.status, 200);
+
+  const user = await request(app).post("/start-game").send({
+    nickname: "user-player",
+    gameId: admin.body.gameId
+  });
+
+  assert.equal(user.status, 200);
+
+  // Start round
+  const startRound = await request(app).post("/start-round").send({
+    gameId: admin.body.gameId,
+    adminToken: admin.body.adminToken
+  });
+
+  assert.equal(startRound.status, 200);
+  assert.equal(startRound.body.roundPhase, "active");
+
+  // Try to join with duplicate name during active round
+  const duplicateDuringRound = await request(app).post("/start-game").send({
+    nickname: "user-player",
+    gameId: admin.body.gameId
+  });
+
+  assert.equal(duplicateDuringRound.status, 409);
+  assert.equal(duplicateDuringRound.body.error, "this username is taken");
+});
