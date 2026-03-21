@@ -35,8 +35,9 @@ function App() {
   const [totalRounds, setTotalRounds] = useState(5);
   const [currentRound, setCurrentRound] = useState(null);
   const [roundPhase, setRoundPhase] = useState("pending");
-  const [distributionMin, setDistributionMin] = useState(80);
-  const [distributionMax, setDistributionMax] = useState(120);
+  const [distributionMin, setDistributionMin] = useState("80");
+  const [distributionMax, setDistributionMax] = useState("120");
+  const [hasUnsavedDistributionChanges, setHasUnsavedDistributionChanges] = useState(false);
   const [lastRoundResult, setLastRoundResult] = useState(null);
   const [history, setHistory] = useState([]);
   const [leaderboardRows, setLeaderboardRows] = useState([]);
@@ -74,8 +75,9 @@ function App() {
             setAdminToken(storedSession?.adminToken || "");
             setCurrentRound(data.currentRound);
             setRoundPhase(data.roundPhase || "pending");
-            setDistributionMin(data.distribution?.min ?? 80);
-            setDistributionMax(data.distribution?.max ?? 120);
+            setDistributionMin(String(data.distribution?.min ?? 80));
+            setDistributionMax(String(data.distribution?.max ?? 120));
+            setHasUnsavedDistributionChanges(false);
             setTotalRounds(data.totalRounds || 5);
           
             setStatusMessage("📍 Session restored from previous session");
@@ -109,15 +111,37 @@ function App() {
     setTotalRounds(data.totalRounds || 5);
 
     if (data.distribution) {
-      setDistributionMin(data.distribution.min);
-      setDistributionMax(data.distribution.max);
+      const shouldPreserveAdminDraft =
+        isAdmin &&
+        hasUnsavedDistributionChanges &&
+        (data.roundPhase || "pending") === "pending";
+
+      if (!shouldPreserveAdminDraft) {
+        setDistributionMin(String(data.distribution.min));
+        setDistributionMax(String(data.distribution.max));
+        setHasUnsavedDistributionChanges(false);
+      }
+    }
+
+    if (data.player) {
+      setNickname(data.player.nickname || nickname);
+      setHistory(data.player.history || []);
+      setLastRoundResult(data.player.lastRoundResult || null);
+      setIsRoundSubmitted(Boolean(data.player.submittedThisRound));
     }
 
     if (showLeaderboard) {
       const leaderboardData = await fetchLeaderboard({ gameId });
       setLeaderboardRows(leaderboardData.leaderboard || []);
     }
-  }, [gameId, playerId, showLeaderboard]);
+  }, [
+    gameId,
+    playerId,
+    showLeaderboard,
+    nickname,
+    isAdmin,
+    hasUnsavedDistributionChanges
+  ]);
 
   const handleNicknameSubmit = async (event) => {
     event.preventDefault();
@@ -140,8 +164,9 @@ function App() {
       setAdminToken(data.adminToken || "");
       setCurrentRound(data.currentRound);
       setRoundPhase(data.roundPhase || "pending");
-      setDistributionMin(data.distribution?.min ?? 80);
-      setDistributionMax(data.distribution?.max ?? 120);
+      setDistributionMin(String(data.distribution?.min ?? 80));
+      setDistributionMax(String(data.distribution?.max ?? 120));
+      setHasUnsavedDistributionChanges(false);
       setTotalRounds(data.totalRounds);
       setHistory([]);
       setLastRoundResult(null);
@@ -177,13 +202,9 @@ function App() {
       setErrorMessage("");
       const data = await submitOrder({ gameId, playerId, orderQuantity });
 
-      setLastRoundResult(data.roundResult);
-      setHistory((prev) => [...prev, data.roundResult]);
       setRoundPhase(data.roundPhase || roundPhase);
       setIsRoundSubmitted(true);
-      setStatusMessage("Order submitted. Result saved on server.");
-
-      await refreshLeaderboard(gameId);
+      setStatusMessage("Order submitted. Waiting for round end.");
     } catch (error) {
       setErrorMessage(error.message);
     }
@@ -201,6 +222,7 @@ function App() {
       const data = await startRound({ gameId, adminToken });
       setCurrentRound(data.currentRound);
       setRoundPhase(data.roundPhase);
+      setHasUnsavedDistributionChanges(false);
       setStatusMessage(`Round ${data.currentRound.id} started.`);
       setIsRoundSubmitted(false);
       setLastRoundResult(null);
@@ -216,8 +238,9 @@ function App() {
       setCurrentRound(data.nextRound);
       setRoundPhase(data.roundPhase);
       if (data.distribution) {
-        setDistributionMin(data.distribution.min);
-        setDistributionMax(data.distribution.max);
+        setDistributionMin(String(data.distribution.min));
+        setDistributionMax(String(data.distribution.max));
+        setHasUnsavedDistributionChanges(false);
       }
       setLeaderboardRows(data.leaderboard || []);
       setStatusMessage(
@@ -226,6 +249,7 @@ function App() {
           : `Round ended. Next round is ${data.nextRound?.id}.`
       );
       setIsRoundSubmitted(false);
+      await syncGameState();
     } catch (error) {
       setErrorMessage(error.message);
     }
@@ -234,15 +258,35 @@ function App() {
   const handleDistributionSave = async () => {
     try {
       setErrorMessage("");
+
+      const parsedMin = Number(distributionMin);
+      const parsedMax = Number(distributionMax);
+
+      if (!Number.isFinite(parsedMin) || !Number.isFinite(parsedMax)) {
+        setErrorMessage("Uniform min and max must be valid numbers.");
+        return;
+      }
+
+      if (parsedMin < 0 || parsedMax < 0) {
+        setErrorMessage("none of the variables can be less than 0");
+        return;
+      }
+
+      if (parsedMin >= parsedMax) {
+        setErrorMessage("min cannot be higher than max");
+        return;
+      }
+
       const data = await setDistribution({
         gameId,
         adminToken,
-        min: Number(distributionMin),
-        max: Number(distributionMax)
+        min: parsedMin,
+        max: parsedMax
       });
 
-      setDistributionMin(data.distribution.min);
-      setDistributionMax(data.distribution.max);
+      setDistributionMin(String(data.distribution.min));
+      setDistributionMax(String(data.distribution.max));
+      setHasUnsavedDistributionChanges(false);
       setCurrentRound((prev) => {
         if (!prev) {
           return prev;
@@ -445,7 +489,10 @@ function App() {
               id="dist-min"
               type="number"
               value={distributionMin}
-              onChange={(event) => setDistributionMin(event.target.value)}
+              onChange={(event) => {
+                setDistributionMin(event.target.value);
+                setHasUnsavedDistributionChanges(true);
+              }}
               disabled={roundPhase === "active"}
             />
             <label htmlFor="dist-max">Uniform max</label>
@@ -453,7 +500,10 @@ function App() {
               id="dist-max"
               type="number"
               value={distributionMax}
-              onChange={(event) => setDistributionMax(event.target.value)}
+              onChange={(event) => {
+                setDistributionMax(event.target.value);
+                setHasUnsavedDistributionChanges(true);
+              }}
               disabled={roundPhase === "active"}
             />
             <button

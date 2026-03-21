@@ -93,7 +93,9 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
         roundPhase: "pending",
         distribution: { type: "uniform", min: 80, max: 120 },
         distributionHistory: [],
-        leaderboard: []
+        leaderboard: [],
+        activeRoundDemand: null,
+        activeRoundOrders: new Map()
       };
 
       activeGame.distributionHistory.push({
@@ -176,8 +178,12 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       return res.status(400).json({ error: "min and max must be numbers" });
     }
 
+    if (parsedMin < 0 || parsedMax < 0) {
+      return res.status(400).json({ error: "none of the variables can be less than 0" });
+    }
+
     if (parsedMin >= parsedMax) {
-      return res.status(400).json({ error: "min must be less than max" });
+      return res.status(400).json({ error: "min cannot be higher than max" });
     }
 
     activeGame.distribution = {
@@ -221,6 +227,8 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       return res.status(400).json({ error: "round already active" });
     }
 
+    activeGame.activeRoundDemand = sampleDemand(activeGame.distribution);
+    activeGame.activeRoundOrders = new Map();
     activeGame.roundPhase = "active";
     emitGameEvent(activeGame, "round_started");
 
@@ -258,29 +266,18 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       return res.status(400).json({ error: "game already completed" });
     }
 
-    const alreadySubmittedThisRound = player.history.some(
-      (entry) => entry.round === round.id
-    );
+    const alreadySubmittedThisRound = activeGame.activeRoundOrders.has(player.id);
 
     if (alreadySubmittedThisRound) {
       return res.status(400).json({ error: "player already submitted this round" });
     }
 
-    const realizedDemand = sampleDemand(activeGame.distribution);
-    const details = calculateProfit(parsedQty, realizedDemand);
-
-    const roundResult = {
-      round: round.id,
-      title: round.title,
-      distribution: { ...activeGame.distribution },
+    activeGame.activeRoundOrders.set(player.id, {
+      playerId: player.id,
+      nickname: player.nickname,
       orderQuantity: parsedQty,
-      realizedDemand,
-      ...details,
-      createdAt: new Date().toISOString()
-    };
-
-    player.history.push(roundResult);
-    player.cumulativeProfit += roundResult.profit;
+      submittedAt: new Date().toISOString()
+    });
 
     emitGameEvent(activeGame, "order_submitted", {
       playerId: player.id,
@@ -289,7 +286,9 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
     });
 
     return res.json({
-      roundResult,
+      accepted: true,
+      roundId: round.id,
+      orderQuantity: parsedQty,
       cumulativeProfit: player.cumulativeProfit,
       roundsPlayed: player.history.length,
       totalRounds: rounds.length,
@@ -313,8 +312,38 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       return res.status(400).json({ error: "round is not active" });
     }
 
+    const endingRound = getRoundForGame(activeGame);
+    const realizedDemand = activeGame.activeRoundDemand;
+
+    if (!endingRound || !Number.isFinite(realizedDemand)) {
+      return res.status(400).json({ error: "round demand state is invalid" });
+    }
+
+    for (const order of activeGame.activeRoundOrders.values()) {
+      const player = activeGame.players.get(order.playerId);
+      if (!player) {
+        continue;
+      }
+
+      const details = calculateProfit(order.orderQuantity, realizedDemand);
+      const roundResult = {
+        round: endingRound.id,
+        title: endingRound.title,
+        distribution: { ...activeGame.distribution },
+        orderQuantity: order.orderQuantity,
+        realizedDemand,
+        ...details,
+        createdAt: new Date().toISOString()
+      };
+
+      player.history.push(roundResult);
+      player.cumulativeProfit += roundResult.profit;
+    }
+
     activeGame.roundPhase = "pending";
     activeGame.currentRoundIndex += 1;
+    activeGame.activeRoundDemand = null;
+    activeGame.activeRoundOrders = new Map();
     activeGame.leaderboard = calculateLeaderboard(activeGame.players);
 
     const nextRound = getRoundForGame(activeGame);
@@ -358,7 +387,11 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
             id: player.id,
             nickname: player.nickname,
             roundsPlayed: player.history.length,
-            cumulativeProfit: player.cumulativeProfit
+            cumulativeProfit: player.cumulativeProfit,
+            history: player.history,
+            lastRoundResult: player.history[player.history.length - 1] || null,
+            submittedThisRound:
+              activeGame.roundPhase === "active" && activeGame.activeRoundOrders.has(player.id)
           }
         : undefined
     });

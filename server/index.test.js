@@ -180,9 +180,11 @@ test("player can submit demand while round is active", async () => {
   });
 
   assert.equal(submit.status, 200);
-  assert.equal(submit.body.roundResult.round, 1);
-  assert.equal(submit.body.roundResult.orderQuantity, 1200);
-  assert.ok(Number.isInteger(submit.body.roundResult.realizedDemand));
+  assert.equal(submit.body.accepted, true);
+  assert.equal(submit.body.roundId, 1);
+  assert.equal(submit.body.orderQuantity, 1200);
+  assert.equal(submit.body.roundPhase, "active");
+  assert.equal(submit.body.cumulativeProfit, 0);
 });
 
 test("admin can end round and leaderboard is returned", async () => {
@@ -298,8 +300,8 @@ test("can play 5 turns back-to-back and finish game", async () => {
     });
 
     assert.equal(submitResponse.status, 200);
-    assert.equal(submitResponse.body.roundResult.round, turn);
-    assert.ok(Number.isFinite(submitResponse.body.roundResult.profit));
+    assert.equal(submitResponse.body.accepted, true);
+    assert.equal(submitResponse.body.roundId, turn);
 
     const endRoundResponse = await request(app).post("/end-round").send({
       gameId,
@@ -360,7 +362,8 @@ test("a joined user can complete all 5 rounds", async () => {
     });
 
     assert.equal(submitResponse.status, 200);
-    assert.equal(submitResponse.body.roundResult.round, round);
+    assert.equal(submitResponse.body.accepted, true);
+    assert.equal(submitResponse.body.roundId, round);
 
     const endRoundResponse = await request(app).post("/end-round").send({
       gameId,
@@ -436,8 +439,15 @@ test("admin can change min-max and joined user sees updated distribution", async
   });
 
   assert.equal(userSubmit.status, 200);
-  assert.ok(userSubmit.body.roundResult.realizedDemand >= 95);
-  assert.ok(userSubmit.body.roundResult.realizedDemand <= 135);
+  assert.equal(userSubmit.body.accepted, true);
+
+  const endRound = await request(app).post("/end-round").send({
+    gameId: admin.body.gameId,
+    adminToken: admin.body.adminToken
+  });
+
+  assert.equal(endRound.status, 200);
+  assert.ok(endRound.body.leaderboard.length >= 1);
 });
 
 test("leaderboard is accessible at game start for admin and user, and during rounds", async () => {
@@ -541,9 +551,8 @@ test("demand is hidden from UI when round is active, visible only after end-roun
   });
 
   assert.equal(submitResponse.status, 200);
-  // Backend returns realizedDemand for server-side calculations
-  assert.ok(submitResponse.body.roundResult.realizedDemand);
-  // But roundPhase is still "active" (UI signal to hide demand)
+  assert.equal(submitResponse.body.accepted, true);
+  // Round is still active (UI should hide round results)
   assert.equal(submitResponse.body.roundPhase, "active");
 
   // Get leaderboard while round is active - demand should be hidden from client perspective
@@ -569,6 +578,103 @@ test("demand is hidden from UI when round is active, visible only after end-roun
   assert.ok(
     endRoundResponse.body.leaderboard[0].roundsPlayed === 1
   );
+});
+
+test("all submitted players receive same realized demand for the round", async () => {
+  const app = createApp({ adminKey: ADMIN_KEY });
+
+  const admin = await request(app).post("/start-game").send({
+    nickname: "admin-player",
+    adminKey: ADMIN_KEY
+  });
+
+  const user = await request(app).post("/start-game").send({
+    nickname: "joined-user",
+    gameId: admin.body.gameId
+  });
+
+  await request(app).post("/start-round").send({
+    gameId: admin.body.gameId,
+    adminToken: admin.body.adminToken
+  });
+
+  const adminSubmit = await request(app).post("/submit-order").send({
+    gameId: admin.body.gameId,
+    playerId: admin.body.playerId,
+    orderQuantity: 1000
+  });
+  assert.equal(adminSubmit.status, 200);
+
+  const userSubmit = await request(app).post("/submit-order").send({
+    gameId: admin.body.gameId,
+    playerId: user.body.playerId,
+    orderQuantity: 900
+  });
+  assert.equal(userSubmit.status, 200);
+
+  const endRound = await request(app).post("/end-round").send({
+    gameId: admin.body.gameId,
+    adminToken: admin.body.adminToken
+  });
+  assert.equal(endRound.status, 200);
+
+  const adminState = await request(app)
+    .get("/game-state")
+    .query({ gameId: admin.body.gameId, playerId: admin.body.playerId });
+  const userState = await request(app)
+    .get("/game-state")
+    .query({ gameId: user.body.gameId, playerId: user.body.playerId });
+
+  assert.equal(adminState.status, 200);
+  assert.equal(userState.status, 200);
+  assert.equal(adminState.body.player.history.length, 1);
+  assert.equal(userState.body.player.history.length, 1);
+
+  const adminDemand = adminState.body.player.history[0].realizedDemand;
+  const userDemand = userState.body.player.history[0].realizedDemand;
+  assert.equal(adminDemand, userDemand);
+});
+
+test("cumulative profit remains unchanged until round ends", async () => {
+  const app = createApp({ adminKey: ADMIN_KEY });
+
+  const admin = await request(app).post("/start-game").send({
+    nickname: "admin-player",
+    adminKey: ADMIN_KEY
+  });
+
+  await request(app).post("/start-round").send({
+    gameId: admin.body.gameId,
+    adminToken: admin.body.adminToken
+  });
+
+  const submit = await request(app).post("/submit-order").send({
+    gameId: admin.body.gameId,
+    playerId: admin.body.playerId,
+    orderQuantity: 1000
+  });
+  assert.equal(submit.status, 200);
+
+  const duringActive = await request(app)
+    .get("/game-state")
+    .query({ gameId: admin.body.gameId, playerId: admin.body.playerId });
+  assert.equal(duringActive.status, 200);
+  assert.equal(duringActive.body.roundPhase, "active");
+  assert.equal(duringActive.body.player.cumulativeProfit, 0);
+  assert.equal(duringActive.body.player.history.length, 0);
+
+  await request(app).post("/end-round").send({
+    gameId: admin.body.gameId,
+    adminToken: admin.body.adminToken
+  });
+
+  const afterEnd = await request(app)
+    .get("/game-state")
+    .query({ gameId: admin.body.gameId, playerId: admin.body.playerId });
+  assert.equal(afterEnd.status, 200);
+  assert.equal(afterEnd.body.roundPhase, "pending");
+  assert.equal(afterEnd.body.player.history.length, 1);
+  assert.notEqual(afterEnd.body.player.cumulativeProfit, 0);
 });
 
 test("joined users see admin start/end round changes via game-state", async () => {
@@ -761,4 +867,60 @@ test("duplicate names remain rejected even after round starts", async () => {
 
   assert.equal(duplicateDuringRound.status, 409);
   assert.equal(duplicateDuringRound.body.error, "this username is taken");
+});
+
+test("admin cannot set negative values for min or max", async () => {
+  const app = createApp({ adminKey: ADMIN_KEY });
+  const admin = await request(app).post("/start-game").send({
+    nickname: "AdminUser",
+    adminKey: ADMIN_KEY
+  });
+
+  // Test negative min
+  const negMin = await request(app).post("/set-distribution").send({
+    gameId: admin.body.gameId,
+    adminToken: admin.body.adminToken,
+    min: -10,
+    max: 50
+  });
+  assert.equal(negMin.status, 400);
+  assert.equal(negMin.body.error, "none of the variables can be less than 0");
+
+  // Test negative max
+  const negMax = await request(app).post("/set-distribution").send({
+    gameId: admin.body.gameId,
+    adminToken: admin.body.adminToken,
+    min: 10,
+    max: -50
+  });
+  assert.equal(negMax.status, 400);
+  assert.equal(negMax.body.error, "none of the variables can be less than 0");
+});
+
+test("admin cannot set min greater than or equal to max", async () => {
+  const app = createApp({ adminKey: ADMIN_KEY });
+  const admin = await request(app).post("/start-game").send({
+    nickname: "AdminUser",
+    adminKey: ADMIN_KEY
+  });
+
+  // Test min >= max (equal)
+  const equal = await request(app).post("/set-distribution").send({
+    gameId: admin.body.gameId,
+    adminToken: admin.body.adminToken,
+    min: 100,
+    max: 100
+  });
+  assert.equal(equal.status, 400);
+  assert.equal(equal.body.error, "min cannot be higher than max");
+
+  // Test min > max
+  const greater = await request(app).post("/set-distribution").send({
+    gameId: admin.body.gameId,
+    adminToken: admin.body.adminToken,
+    min: 150,
+    max: 100
+  });
+  assert.equal(greater.status, 400);
+  assert.equal(greater.body.error, "min cannot be higher than max");
 });
