@@ -102,7 +102,21 @@ Backend:
 ```bash
 ADMIN_KEY=admin123
 PORT=4000
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
 ```
+
+## Supabase persistence (optional)
+
+1. `supabase/schema.sql` dosyasini Supabase SQL Editor'da calistir.
+2. Backend env degiskenlerini doldur:
+  - `SUPABASE_URL`
+  - `SUPABASE_SERVICE_ROLE_KEY`
+3. Server bu degiskenler varsa asagidaki olaylari SQL'e yazar:
+  - Oyun olusturma ve oyuncu katilimi
+  - Distribution degisikligi
+  - Round baslangici / bitisi
+  - Oyuncu order submit ve round sonu profit detaylari
 
 ## Build
 

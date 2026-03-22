@@ -7,6 +7,15 @@ import { WebSocketServer } from "ws";
 import { rounds } from "./rounds.js";
 import { sampleDemand } from "./utils/demand.js";
 import { calculateProfit } from "./utils/profit.js";
+import {
+  isDbEnabled,
+  recordDistributionUpdated,
+  recordGameCreated,
+  recordOrderSubmitted,
+  recordPlayerJoined,
+  recordRoundEnded,
+  recordRoundStarted
+} from "./dbLogger.js";
 
 const PORT = Number(process.env.PORT || 4000);
 const DEFAULT_ADMIN_KEY = process.env.ADMIN_KEY || "admin123";
@@ -46,6 +55,10 @@ function getRoundForGame(game) {
 export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
   const app = express();
   let activeGame = null;
+
+  if (isDbEnabled()) {
+    console.log("Supabase persistence is enabled.");
+  }
 
   const emitGameEvent = (game, type, extra = {}) => {
     if (typeof onGameEvent !== "function" || !game) {
@@ -133,6 +146,31 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
 
     activeGame.players.set(player.id, player);
 
+    const joinedAt = new Date().toISOString();
+
+    if (requestedAdminKey) {
+      void recordGameCreated({
+        gameId: activeGame.id,
+        adminPlayerId: player.id,
+        createdAt: activeGame.createdAt
+      });
+
+      void recordDistributionUpdated({
+        gameId: activeGame.id,
+        roundNo: activeGame.currentRoundIndex + 1,
+        distribution: activeGame.distribution,
+        updatedAt: joinedAt
+      });
+    }
+
+    void recordPlayerJoined({
+      gameId: activeGame.id,
+      playerId: player.id,
+      nickname: player.nickname,
+      isAdmin: Boolean(requestedAdminKey),
+      joinedAt
+    });
+
     if (activeGame.roundPhase === "pending") {
       activeGame.leaderboard = calculateLeaderboard(activeGame.players);
     }
@@ -198,6 +236,13 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       updatedAt: new Date().toISOString()
     });
 
+    void recordDistributionUpdated({
+      gameId: activeGame.id,
+      roundNo: activeGame.currentRoundIndex + 1,
+      distribution: activeGame.distribution,
+      updatedAt: new Date().toISOString()
+    });
+
     emitGameEvent(activeGame, "distribution_updated");
 
     return res.json({
@@ -230,6 +275,17 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
     activeGame.activeRoundDemand = sampleDemand(activeGame.distribution);
     activeGame.activeRoundOrders = new Map();
     activeGame.roundPhase = "active";
+    const startedAt = new Date().toISOString();
+
+    void recordRoundStarted({
+      gameId: activeGame.id,
+      roundId: currentRound.id,
+      roundNo: activeGame.currentRoundIndex + 1,
+      distribution: activeGame.distribution,
+      realizedDemand: activeGame.activeRoundDemand,
+      startedAt
+    });
+
     emitGameEvent(activeGame, "round_started");
 
     return res.json({
@@ -279,6 +335,15 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       submittedAt: new Date().toISOString()
     });
 
+    void recordOrderSubmitted({
+      gameId: activeGame.id,
+      roundId: round.id,
+      playerId: player.id,
+      nickname: player.nickname,
+      orderQuantity: parsedQty,
+      submittedAt: new Date().toISOString()
+    });
+
     emitGameEvent(activeGame, "order_submitted", {
       playerId: player.id,
       nickname: player.nickname,
@@ -314,10 +379,13 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
 
     const endingRound = getRoundForGame(activeGame);
     const realizedDemand = activeGame.activeRoundDemand;
+    const endedAt = new Date().toISOString();
 
     if (!endingRound || !Number.isFinite(realizedDemand)) {
       return res.status(400).json({ error: "round demand state is invalid" });
     }
+
+    const dbRoundResults = [];
 
     for (const order of activeGame.activeRoundOrders.values()) {
       const player = activeGame.players.get(order.playerId);
@@ -338,7 +406,23 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
 
       player.history.push(roundResult);
       player.cumulativeProfit += roundResult.profit;
+
+      dbRoundResults.push({
+        playerId: player.id,
+        sold: roundResult.sold,
+        leftover: roundResult.leftover,
+        stockout: roundResult.stockout,
+        profit: roundResult.profit
+      });
     }
+
+    void recordRoundEnded({
+      gameId: activeGame.id,
+      roundId: endingRound.id,
+      realizedDemand,
+      endedAt,
+      results: dbRoundResults
+    });
 
     activeGame.roundPhase = "pending";
     activeGame.currentRoundIndex += 1;
