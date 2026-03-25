@@ -924,3 +924,57 @@ test("admin cannot set min greater than or equal to max", async () => {
   assert.equal(greater.status, 400);
   assert.equal(greater.body.error, "min cannot be higher than max");
 });
+import { sampleDemand } from "./utils/demand.js";
+
+test("normal distribution with stdDev=0 always returns mean", () => {
+  const dist = { type: "normal", mean: 100, stdDev: 0, min: 100, max: 100 };
+  for (let i = 0; i < 100; i++) {
+    assert.equal(sampleDemand(dist), 100);
+  }
+});
+
+test("set-distribution accepts normal type with mean and stdDev", async () => {
+  const app = createApp({ adminKey: ADMIN_KEY });
+  const admin = await request(app).post("/start-game").send({
+    nickname: "admin-player",
+    adminKey: ADMIN_KEY
+  });
+
+  const res = await request(app).post("/set-distribution").send({
+    gameId: admin.body.gameId,
+    adminToken: admin.body.adminToken,
+    type: "normal",
+    mean: 100,
+    stdDev: 10
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.distribution.type, "normal");
+  assert.equal(res.body.distribution.mean, 100);
+  assert.equal(res.body.distribution.stdDev, 10);
+  assert.equal(res.body.distribution.min, 70);
+  assert.equal(res.body.distribution.max, 130);
+});
+
+test("set-distribution accepts normal with stdDev=0 (deterministic demand)", async () => {
+  const app = createApp({ adminKey: ADMIN_KEY });
+  const admin = await request(app).post("/start-game").send({
+    nickname: "admin-player",
+    adminKey: ADMIN_KEY
+  });
+
+  const res = await request(app).post("/set-distribution").send({
+    gameId: admin.body.gameId,
+    adminToken: admin.body.adminToken,
+    type: "normal",
+    mean: 100,
+    stdDev: 0
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.distribution.type, "normal");
+  assert.equal(res.body.distribution.mean, 100);
+  assert.equal(res.body.distribution.stdDev, 0);
+  assert.equal(res.body.distribution.min, 100);
+  assert.equal(res.body.distribution.max, 100);
+});

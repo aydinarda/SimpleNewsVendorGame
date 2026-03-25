@@ -195,6 +195,20 @@ button:disabled {
   margin-bottom: 6px;
 }
 
+.distribution-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 0.9rem;
+  color: var(--text-muted, #666);
+}
+
+.distribution-detail .dist-type {
+  font-weight: 600;
+  color: var(--text, #333);
+}
+
 .distribution-controls {
   margin-top: 8px;
   display: grid;

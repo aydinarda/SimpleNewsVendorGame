@@ -52,7 +52,7 @@ export function describeDistribution(distribution) {
   }
 
   if (distribution.type === "normal") {
-    return `Normal mean ${distribution.mean}, sd ${distribution.stdDev}, bounded [${distribution.min}, ${distribution.max}]`;
+    return `Normal (μ=${distribution.mean}, σ=${distribution.stdDev})`;
   }
 
   return "Unknown distribution";

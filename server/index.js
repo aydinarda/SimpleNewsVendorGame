@@ -195,7 +195,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
   });
 
   app.post("/set-distribution", (req, res) => {
-    const { gameId, adminToken, min, max } = req.body || {};
+    const { gameId, adminToken, type, min, max, mean } = req.body || {};
 
     if (!activeGame || gameId !== activeGame.id) {
       return res.status(400).json({ error: "invalid or inactive game id" });
@@ -209,26 +209,60 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       return res.status(400).json({ error: "cannot change distribution during active round" });
     }
 
-    const parsedMin = Number(min);
-    const parsedMax = Number(max);
+    const distType = type === "normal" ? "normal" : "uniform";
 
-    if (!Number.isFinite(parsedMin) || !Number.isFinite(parsedMax)) {
-      return res.status(400).json({ error: "min and max must be numbers" });
+    let newDistribution;
+
+    if (distType === "normal") {
+      const parsedMean = Number(mean);
+      const parsedStdDev = Number(req.body?.stdDev);
+
+      if (!Number.isFinite(parsedMean) || !Number.isFinite(parsedStdDev)) {
+        return res.status(400).json({ error: "mean and stdDev must be numbers" });
+      }
+
+      if (parsedMean <= 0) {
+        return res.status(400).json({ error: "mean must be greater than 0" });
+      }
+
+      if (parsedStdDev < 0) {
+        return res.status(400).json({ error: "stdDev cannot be negative" });
+      }
+
+      const boundedMin = Math.max(0, Math.round(parsedMean - 3 * parsedStdDev));
+      const boundedMax = Math.round(parsedMean + 3 * parsedStdDev);
+
+      newDistribution = {
+        type: "normal",
+        mean: Math.round(parsedMean),
+        stdDev: parsedStdDev,
+        min: parsedStdDev === 0 ? Math.round(parsedMean) : boundedMin,
+        max: parsedStdDev === 0 ? Math.round(parsedMean) : boundedMax
+      };
+    } else {
+      const parsedMin = Number(min);
+      const parsedMax = Number(max);
+
+      if (!Number.isFinite(parsedMin) || !Number.isFinite(parsedMax)) {
+        return res.status(400).json({ error: "min and max must be numbers" });
+      }
+
+      if (parsedMin < 0 || parsedMax < 0) {
+        return res.status(400).json({ error: "none of the variables can be less than 0" });
+      }
+
+      if (parsedMin >= parsedMax) {
+        return res.status(400).json({ error: "min cannot be higher than max" });
+      }
+
+      newDistribution = {
+        type: "uniform",
+        min: Math.round(parsedMin),
+        max: Math.round(parsedMax)
+      };
     }
 
-    if (parsedMin < 0 || parsedMax < 0) {
-      return res.status(400).json({ error: "none of the variables can be less than 0" });
-    }
-
-    if (parsedMin >= parsedMax) {
-      return res.status(400).json({ error: "min cannot be higher than max" });
-    }
-
-    activeGame.distribution = {
-      type: "uniform",
-      min: Math.round(parsedMin),
-      max: Math.round(parsedMax)
-    };
+    activeGame.distribution = newDistribution;
 
     activeGame.distributionHistory.push({
       roundIndex: activeGame.currentRoundIndex,

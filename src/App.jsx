@@ -35,8 +35,11 @@ function App() {
   const [totalRounds, setTotalRounds] = useState(5);
   const [currentRound, setCurrentRound] = useState(null);
   const [roundPhase, setRoundPhase] = useState("pending");
+  const [distributionType, setDistributionType] = useState("uniform");
   const [distributionMin, setDistributionMin] = useState("80");
   const [distributionMax, setDistributionMax] = useState("120");
+  const [distributionMean, setDistributionMean] = useState("100");
+  const [distributionStdDev, setDistributionStdDev] = useState("10");
   const [hasUnsavedDistributionChanges, setHasUnsavedDistributionChanges] = useState(false);
   const [lastRoundResult, setLastRoundResult] = useState(null);
   const [history, setHistory] = useState([]);
@@ -75,8 +78,11 @@ function App() {
             setAdminToken(storedSession?.adminToken || "");
             setCurrentRound(data.currentRound);
             setRoundPhase(data.roundPhase || "pending");
+            setDistributionType(data.distribution?.type ?? "uniform");
             setDistributionMin(String(data.distribution?.min ?? 80));
             setDistributionMax(String(data.distribution?.max ?? 120));
+            setDistributionMean(String(data.distribution?.mean ?? 100));
+            setDistributionStdDev(String(data.distribution?.stdDev ?? 10));
             setHasUnsavedDistributionChanges(false);
             setTotalRounds(data.totalRounds || 5);
           
@@ -117,8 +123,11 @@ function App() {
         (data.roundPhase || "pending") === "pending";
 
       if (!shouldPreserveAdminDraft) {
+        setDistributionType(data.distribution.type ?? "uniform");
         setDistributionMin(String(data.distribution.min));
         setDistributionMax(String(data.distribution.max));
+        setDistributionMean(String(data.distribution.mean ?? 100));
+        setDistributionStdDev(String(data.distribution?.stdDev ?? 10));
         setHasUnsavedDistributionChanges(false);
       }
     }
@@ -164,8 +173,11 @@ function App() {
       setAdminToken(data.adminToken || "");
       setCurrentRound(data.currentRound);
       setRoundPhase(data.roundPhase || "pending");
+      setDistributionType(data.distribution?.type ?? "uniform");
       setDistributionMin(String(data.distribution?.min ?? 80));
       setDistributionMax(String(data.distribution?.max ?? 120));
+      setDistributionMean(String(data.distribution?.mean ?? 100));
+      setDistributionStdDev(String(data.distribution?.stdDev ?? 10));
       setHasUnsavedDistributionChanges(false);
       setTotalRounds(data.totalRounds);
       setHistory([]);
@@ -238,8 +250,11 @@ function App() {
       setCurrentRound(data.nextRound);
       setRoundPhase(data.roundPhase);
       if (data.distribution) {
+        setDistributionType(data.distribution.type ?? "uniform");
         setDistributionMin(String(data.distribution.min));
         setDistributionMax(String(data.distribution.max));
+        setDistributionMean(String(data.distribution.mean ?? 100));
+        setDistributionStdDev(String(data.distribution?.stdDev ?? 10));
         setHasUnsavedDistributionChanges(false);
       }
       setLeaderboardRows(data.leaderboard || []);
@@ -259,47 +274,69 @@ function App() {
     try {
       setErrorMessage("");
 
-      const parsedMin = Number(distributionMin);
-      const parsedMax = Number(distributionMax);
+      let payload = { gameId, adminToken, type: distributionType };
 
-      if (!Number.isFinite(parsedMin) || !Number.isFinite(parsedMax)) {
-        setErrorMessage("Uniform min and max must be valid numbers.");
-        return;
-      }
+      if (distributionType === "normal") {
+        const parsedMean = Number(distributionMean);
+        const parsedStdDev = Number(distributionStdDev);
 
-      if (parsedMin < 0 || parsedMax < 0) {
-        setErrorMessage("none of the variables can be less than 0");
-        return;
-      }
-
-      if (parsedMin >= parsedMax) {
-        setErrorMessage("min cannot be higher than max");
-        return;
-      }
-
-      const data = await setDistribution({
-        gameId,
-        adminToken,
-        min: parsedMin,
-        max: parsedMax
-      });
-
-      setDistributionMin(String(data.distribution.min));
-      setDistributionMax(String(data.distribution.max));
-      setHasUnsavedDistributionChanges(false);
-      setCurrentRound((prev) => {
-        if (!prev) {
-          return prev;
+        if (!Number.isFinite(parsedMean) || !Number.isFinite(parsedStdDev)) {
+          setErrorMessage("Mean and std. deviation must be valid numbers.");
+          return;
         }
 
-        return {
-          ...prev,
-          distribution: data.distribution
-        };
+        if (parsedMean <= 0) {
+          setErrorMessage("Mean must be greater than 0.");
+          return;
+        }
+
+        if (parsedStdDev < 0) {
+          setErrorMessage("Std. deviation cannot be negative.");
+          return;
+        }
+
+        payload = { ...payload, mean: parsedMean, stdDev: parsedStdDev };
+      } else {
+        const parsedMin = Number(distributionMin);
+        const parsedMax = Number(distributionMax);
+
+        if (!Number.isFinite(parsedMin) || !Number.isFinite(parsedMax)) {
+          setErrorMessage("Uniform min and max must be valid numbers.");
+          return;
+        }
+
+        if (parsedMin < 0 || parsedMax < 0) {
+          setErrorMessage("none of the variables can be less than 0");
+          return;
+        }
+
+        if (parsedMin >= parsedMax) {
+          setErrorMessage("min cannot be higher than max");
+          return;
+        }
+
+        payload = { ...payload, min: parsedMin, max: parsedMax };
+      }
+
+      const data = await setDistribution(payload);
+
+      setDistributionType(data.distribution.type ?? "uniform");
+      setDistributionMin(String(data.distribution.min));
+      setDistributionMax(String(data.distribution.max));
+      setDistributionMean(String(data.distribution.mean ?? 100));
+      setDistributionStdDev(String(data.distribution?.stdDev ?? 10));
+      setHasUnsavedDistributionChanges(false);
+      setCurrentRound((prev) => {
+        if (!prev) return prev;
+        return { ...prev, distribution: data.distribution };
       });
-      setStatusMessage(
-        `Uniform distribution updated to [${data.distribution.min}, ${data.distribution.max}].`
-      );
+
+      const desc =
+        data.distribution.type === "normal"
+          ? `Normal distribution updated (mean=${data.distribution.mean}, stdDev=${data.distribution.stdDev}).`
+          : `Uniform distribution updated to [${data.distribution.min}, ${data.distribution.max}].`;
+
+      setStatusMessage(desc);
     } catch (error) {
       setErrorMessage(error.message);
     }
@@ -333,7 +370,7 @@ function App() {
     };
 
     syncStateSafely();
-    const intervalId = setInterval(syncStateSafely, 5000);
+    const intervalId = setInterval(syncStateSafely, 150000);
 
     return () => {
       clearInterval(intervalId);
@@ -484,28 +521,72 @@ function App() {
           <h3>Admin Controls</h3>
           <p className="muted">Round phase: {roundPhase}</p>
           <div className="distribution-controls">
-            <label htmlFor="dist-min">Uniform min</label>
-            <input
-              id="dist-min"
-              type="number"
-              value={distributionMin}
+            <label htmlFor="dist-type">Distribution type</label>
+            <select
+              id="dist-type"
+              value={distributionType}
               onChange={(event) => {
-                setDistributionMin(event.target.value);
+                setDistributionType(event.target.value);
                 setHasUnsavedDistributionChanges(true);
               }}
               disabled={roundPhase === "active"}
-            />
-            <label htmlFor="dist-max">Uniform max</label>
-            <input
-              id="dist-max"
-              type="number"
-              value={distributionMax}
-              onChange={(event) => {
-                setDistributionMax(event.target.value);
-                setHasUnsavedDistributionChanges(true);
-              }}
-              disabled={roundPhase === "active"}
-            />
+            >
+              <option value="uniform">Uniform</option>
+              <option value="normal">Normal</option>
+            </select>
+
+            {distributionType === "uniform" ? (
+              <>
+                <label htmlFor="dist-min">Uniform min</label>
+                <input
+                  id="dist-min"
+                  type="number"
+                  value={distributionMin}
+                  onChange={(event) => {
+                    setDistributionMin(event.target.value);
+                    setHasUnsavedDistributionChanges(true);
+                  }}
+                  disabled={roundPhase === "active"}
+                />
+                <label htmlFor="dist-max">Uniform max</label>
+                <input
+                  id="dist-max"
+                  type="number"
+                  value={distributionMax}
+                  onChange={(event) => {
+                    setDistributionMax(event.target.value);
+                    setHasUnsavedDistributionChanges(true);
+                  }}
+                  disabled={roundPhase === "active"}
+                />
+              </>
+            ) : (
+              <>
+                <label htmlFor="dist-mean">Mean</label>
+                <input
+                  id="dist-mean"
+                  type="number"
+                  value={distributionMean}
+                  onChange={(event) => {
+                    setDistributionMean(event.target.value);
+                    setHasUnsavedDistributionChanges(true);
+                  }}
+                  disabled={roundPhase === "active"}
+                />
+                <label htmlFor="dist-stddev">Std. Deviation</label>
+                <input
+                  id="dist-stddev"
+                  type="number"
+                  value={distributionStdDev}
+                  onChange={(event) => {
+                    setDistributionStdDev(event.target.value);
+                    setHasUnsavedDistributionChanges(true);
+                  }}
+                  disabled={roundPhase === "active"}
+                />
+              </>
+            )}
+
             <button
               type="button"
               onClick={handleDistributionSave}

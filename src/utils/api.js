@@ -62,9 +62,9 @@ export function endRound({ gameId, adminToken }) {
   });
 }
 
-export function setDistribution({ gameId, adminToken, min, max }) {
+export function setDistribution(params) {
   return request("/set-distribution", {
     method: "POST",
-    body: JSON.stringify({ gameId, adminToken, min, max })
+    body: JSON.stringify(params)
   });
 }
