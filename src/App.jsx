@@ -9,6 +9,7 @@ import {
   fetchGameState,
   fetchLeaderboard,
   setDistribution,
+  setPrices,
   startGame,
   startRound,
   submitOrder
@@ -41,6 +42,10 @@ function App() {
   const [distributionMean, setDistributionMean] = useState("100");
   const [distributionStdDev, setDistributionStdDev] = useState("10");
   const [hasUnsavedDistributionChanges, setHasUnsavedDistributionChanges] = useState(false);
+  const [wholesaleCost, setWholesaleCost] = useState("10");
+  const [retailPrice, setRetailPrice] = useState("40");
+  const [salvagePrice, setSalvagePrice] = useState("5");
+  const [hasUnsavedPriceChanges, setHasUnsavedPriceChanges] = useState(false);
   const [lastRoundResult, setLastRoundResult] = useState(null);
   const [history, setHistory] = useState([]);
   const [leaderboardRows, setLeaderboardRows] = useState([]);
@@ -84,6 +89,10 @@ function App() {
             setDistributionMean(String(data.distribution?.mean ?? 100));
             setDistributionStdDev(String(data.distribution?.stdDev ?? 10));
             setHasUnsavedDistributionChanges(false);
+            setWholesaleCost(String(data.prices?.wholesaleCost ?? 10));
+            setRetailPrice(String(data.prices?.retailPrice ?? 40));
+            setSalvagePrice(String(data.prices?.salvagePrice ?? 5));
+            setHasUnsavedPriceChanges(false);
             setTotalRounds(data.totalRounds || 5);
           
             setStatusMessage("📍 Session restored from previous session");
@@ -132,6 +141,20 @@ function App() {
       }
     }
 
+    if (data.prices) {
+      const shouldPreservePriceDraft =
+        isAdmin &&
+        hasUnsavedPriceChanges &&
+        (data.roundPhase || "pending") === "pending";
+
+      if (!shouldPreservePriceDraft) {
+        setWholesaleCost(String(data.prices.wholesaleCost));
+        setRetailPrice(String(data.prices.retailPrice));
+        setSalvagePrice(String(data.prices.salvagePrice));
+        setHasUnsavedPriceChanges(false);
+      }
+    }
+
     if (data.player) {
       setNickname(data.player.nickname || nickname);
       setHistory(data.player.history || []);
@@ -149,7 +172,8 @@ function App() {
     showLeaderboard,
     nickname,
     isAdmin,
-    hasUnsavedDistributionChanges
+    hasUnsavedDistributionChanges,
+    hasUnsavedPriceChanges
   ]);
 
   const handleNicknameSubmit = async (event) => {
@@ -179,6 +203,10 @@ function App() {
       setDistributionMean(String(data.distribution?.mean ?? 100));
       setDistributionStdDev(String(data.distribution?.stdDev ?? 10));
       setHasUnsavedDistributionChanges(false);
+      setWholesaleCost(String(data.prices?.wholesaleCost ?? 10));
+      setRetailPrice(String(data.prices?.retailPrice ?? 40));
+      setSalvagePrice(String(data.prices?.salvagePrice ?? 5));
+      setHasUnsavedPriceChanges(false);
       setTotalRounds(data.totalRounds);
       setHistory([]);
       setLastRoundResult(null);
@@ -256,6 +284,12 @@ function App() {
         setDistributionMean(String(data.distribution.mean ?? 100));
         setDistributionStdDev(String(data.distribution?.stdDev ?? 10));
         setHasUnsavedDistributionChanges(false);
+      }
+      if (data.prices) {
+        setWholesaleCost(String(data.prices.wholesaleCost));
+        setRetailPrice(String(data.prices.retailPrice));
+        setSalvagePrice(String(data.prices.salvagePrice));
+        setHasUnsavedPriceChanges(false);
       }
       setLeaderboardRows(data.leaderboard || []);
       setStatusMessage(
@@ -337,6 +371,59 @@ function App() {
           : `Uniform distribution updated to [${data.distribution.min}, ${data.distribution.max}].`;
 
       setStatusMessage(desc);
+    } catch (error) {
+      setErrorMessage(error.message);
+    }
+  };
+
+  const handlePricesSave = async () => {
+    try {
+      setErrorMessage("");
+
+      const parsedWholesale = Number(wholesaleCost);
+      const parsedRetail = Number(retailPrice);
+      const parsedSalvage = Number(salvagePrice);
+
+      if (!Number.isFinite(parsedWholesale) || !Number.isFinite(parsedRetail) || !Number.isFinite(parsedSalvage)) {
+        setErrorMessage("All prices must be valid numbers.");
+        return;
+      }
+
+      if (parsedWholesale <= 0 || parsedRetail <= 0) {
+        setErrorMessage("Wholesale cost and retail price must be greater than 0.");
+        return;
+      }
+
+      if (parsedSalvage < 0) {
+        setErrorMessage("Salvage price cannot be negative.");
+        return;
+      }
+
+      if (parsedSalvage >= parsedWholesale) {
+        setErrorMessage("Salvage price must be less than wholesale cost.");
+        return;
+      }
+
+      if (parsedWholesale >= parsedRetail) {
+        setErrorMessage("Wholesale cost must be less than retail price.");
+        return;
+      }
+
+      const data = await setPrices({
+        gameId,
+        adminToken,
+        wholesaleCost: parsedWholesale,
+        retailPrice: parsedRetail,
+        salvagePrice: parsedSalvage
+      });
+
+      setWholesaleCost(String(data.prices.wholesaleCost));
+      setRetailPrice(String(data.prices.retailPrice));
+      setSalvagePrice(String(data.prices.salvagePrice));
+      setHasUnsavedPriceChanges(false);
+      setStatusMessage(
+        `Prices updated: Retail $${data.prices.retailPrice}, Wholesale $${data.prices.wholesaleCost}, Salvage $${data.prices.salvagePrice}.`
+      );
     } catch (error) {
       setErrorMessage(error.message);
     }
@@ -593,6 +680,48 @@ function App() {
               disabled={roundPhase === "active"}
             >
               Save Distribution
+            </button>
+          </div>
+          <div className="price-controls">
+            <label htmlFor="price-wholesale">Wholesale Cost</label>
+            <input
+              id="price-wholesale"
+              type="number"
+              value={wholesaleCost}
+              onChange={(event) => {
+                setWholesaleCost(event.target.value);
+                setHasUnsavedPriceChanges(true);
+              }}
+              disabled={roundPhase === "active"}
+            />
+            <label htmlFor="price-retail">Retail Price</label>
+            <input
+              id="price-retail"
+              type="number"
+              value={retailPrice}
+              onChange={(event) => {
+                setRetailPrice(event.target.value);
+                setHasUnsavedPriceChanges(true);
+              }}
+              disabled={roundPhase === "active"}
+            />
+            <label htmlFor="price-salvage">Salvage Price</label>
+            <input
+              id="price-salvage"
+              type="number"
+              value={salvagePrice}
+              onChange={(event) => {
+                setSalvagePrice(event.target.value);
+                setHasUnsavedPriceChanges(true);
+              }}
+              disabled={roundPhase === "active"}
+            />
+            <button
+              type="button"
+              onClick={handlePricesSave}
+              disabled={roundPhase === "active"}
+            >
+              Save Prices
             </button>
           </div>
           <div className="admin-buttons">

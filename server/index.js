@@ -13,6 +13,7 @@ import {
   recordGameCreated,
   recordOrderSubmitted,
   recordPlayerJoined,
+  recordPricesUpdated,
   recordRoundEnded,
   recordRoundStarted
 } from "./dbLogger.js";
@@ -105,6 +106,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
         currentRoundIndex: 0,
         roundPhase: "pending",
         distribution: { type: "uniform", min: 80, max: 120 },
+        prices: { wholesaleCost: 10, retailPrice: 40, salvagePrice: 5 },
         distributionHistory: [],
         leaderboard: [],
         activeRoundDemand: null,
@@ -188,6 +190,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       currentRound: getRoundForGame(activeGame),
       roundPhase: activeGame.roundPhase,
       distribution: activeGame.distribution,
+      prices: activeGame.prices,
       totalRounds: rounds.length,
       roundsPlayed: player.history.length,
       cumulativeProfit: player.cumulativeProfit
@@ -283,6 +286,68 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       gameId: activeGame.id,
       distribution: activeGame.distribution,
       distributionHistory: activeGame.distributionHistory
+    });
+  });
+
+  app.post("/set-prices", (req, res) => {
+    const { gameId, adminToken, wholesaleCost, retailPrice, salvagePrice } = req.body || {};
+
+    if (!activeGame || gameId !== activeGame.id) {
+      return res.status(400).json({ error: "invalid or inactive game id" });
+    }
+
+    if (!adminToken || adminToken !== activeGame.adminToken) {
+      return res.status(403).json({ error: "admin authorization required" });
+    }
+
+    if (activeGame.roundPhase === "active") {
+      return res.status(400).json({ error: "cannot change prices during active round" });
+    }
+
+    const parsedWholesale = Number(wholesaleCost);
+    const parsedRetail = Number(retailPrice);
+    const parsedSalvage = Number(salvagePrice);
+
+    if (!Number.isFinite(parsedWholesale) || !Number.isFinite(parsedRetail) || !Number.isFinite(parsedSalvage)) {
+      return res.status(400).json({ error: "all prices must be valid numbers" });
+    }
+
+    if (parsedWholesale <= 0 || parsedRetail <= 0) {
+      return res.status(400).json({ error: "wholesaleCost and retailPrice must be greater than 0" });
+    }
+
+    if (parsedSalvage < 0) {
+      return res.status(400).json({ error: "salvagePrice cannot be negative" });
+    }
+
+    if (parsedSalvage >= parsedWholesale) {
+      return res.status(400).json({ error: "salvagePrice must be less than wholesaleCost" });
+    }
+
+    if (parsedWholesale >= parsedRetail) {
+      return res.status(400).json({ error: "wholesaleCost must be less than retailPrice" });
+    }
+
+    activeGame.prices = {
+      wholesaleCost: parsedWholesale,
+      retailPrice: parsedRetail,
+      salvagePrice: parsedSalvage
+    };
+
+    const updatedAt = new Date().toISOString();
+
+    void recordPricesUpdated({
+      gameId: activeGame.id,
+      roundNo: activeGame.currentRoundIndex + 1,
+      prices: activeGame.prices,
+      updatedAt
+    });
+
+    emitGameEvent(activeGame, "prices_updated");
+
+    return res.json({
+      gameId: activeGame.id,
+      prices: activeGame.prices
     });
   });
 
@@ -427,7 +492,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
         continue;
       }
 
-      const details = calculateProfit(order.orderQuantity, realizedDemand);
+      const details = calculateProfit(order.orderQuantity, realizedDemand, activeGame.prices);
       const roundResult = {
         round: endingRound.id,
         title: endingRound.title,
@@ -474,6 +539,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       nextRound,
       roundPhase: activeGame.roundPhase,
       distribution: activeGame.distribution,
+      prices: activeGame.prices,
       leaderboard: activeGame.leaderboard
     });
   });
@@ -499,6 +565,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       currentRound,
       totalRounds: rounds.length,
       distribution: activeGame.distribution,
+      prices: activeGame.prices,
       finished: currentRound === null,
       player: player
         ? {

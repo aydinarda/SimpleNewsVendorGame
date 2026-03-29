@@ -68,3 +68,10 @@ export function setDistribution(params) {
     body: JSON.stringify(params)
   });
 }
+
+export function setPrices(params) {
+  return request("/set-prices", {
+    method: "POST",
+    body: JSON.stringify(params)
+  });
+}

@@ -77,6 +77,21 @@ export async function recordDistributionUpdated({ gameId, roundNo, distribution,
   );
 }
 
+export async function recordPricesUpdated({ gameId, roundNo, prices, updatedAt }) {
+  await runQuery("recordPricesUpdated", () =>
+    supabase.from("session_events").insert({
+      game_id: gameId,
+      event_type: "prices_updated",
+      payload_json: {
+        roundNo,
+        prices,
+        updatedAt
+      },
+      created_at: updatedAt
+    })
+  );
+}
+
 export async function recordRoundStarted({
   gameId,
   roundId,
