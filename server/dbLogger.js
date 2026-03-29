@@ -23,7 +23,7 @@ async function runQuery(label, queryFactory) {
     const { error } = await queryFactory();
 
     if (error) {
-      console.error(`[db] ${label} failed:`, error.message);
+      console.error(`[db] ${label} failed:`, error.message, `| code: ${error.code} | details: ${error.details} | hint: ${error.hint}`);
     }
   } catch (error) {
     console.error(`[db] ${label} threw:`, error.message);
