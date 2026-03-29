@@ -4,7 +4,6 @@ import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
-import { rounds } from "./rounds.js";
 import { sampleDemand } from "./utils/demand.js";
 import { calculateProfit } from "./utils/profit.js";
 import {
@@ -15,7 +14,8 @@ import {
   recordPlayerJoined,
   recordPricesUpdated,
   recordRoundEnded,
-  recordRoundStarted
+  recordRoundStarted,
+  recordTurCompleted
 } from "./dbLogger.js";
 
 const PORT = Number(process.env.PORT || 4000);
@@ -41,7 +41,11 @@ function sanitizeNickname(raw) {
 }
 
 function getRoundForGame(game) {
-  const baseRound = rounds[game.currentRoundIndex];
+  if (game.currentTurIndex >= game.totalTurs) {
+    return null;
+  }
+
+  const baseRound = game.rounds[game.currentRoundIndex];
 
   if (!baseRound) {
     return null;
@@ -98,12 +102,19 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
         return res.status(403).json({ error: "invalid admin key" });
       }
 
+      const handsPerTur = Math.max(1, Math.min(20, Math.round(Number(req.body?.handsPerTur) || 5)));
+      const totalTurs = Math.max(1, Math.min(10, Math.round(Number(req.body?.totalTurs) || 1)));
+
       activeGame = {
         id: randomUUID(),
         adminToken: randomUUID(),
         players: new Map(),
         createdAt: new Date().toISOString(),
         currentRoundIndex: 0,
+        currentTurIndex: 0,
+        totalTurs,
+        handsPerTur,
+        rounds: Array.from({ length: handsPerTur }, (_, i) => ({ id: i + 1, title: `Hand ${i + 1}` })),
         roundPhase: "pending",
         distribution: { type: "uniform", min: 80, max: 120 },
         prices: { wholesaleCost: 10, retailPrice: 40, salvagePrice: 5 },
@@ -143,7 +154,9 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       nickname,
       currentRoundIndex: 0,
       cumulativeProfit: 0,
-      history: []
+      overallProfit: 0,
+      history: [],
+      turHistory: []
     };
 
     activeGame.players.set(player.id, player);
@@ -191,7 +204,9 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       roundPhase: activeGame.roundPhase,
       distribution: activeGame.distribution,
       prices: activeGame.prices,
-      totalRounds: rounds.length,
+      totalRounds: activeGame.handsPerTur,
+      totalTurs: activeGame.totalTurs,
+      currentTurIndex: activeGame.currentTurIndex,
       roundsPlayed: player.history.length,
       cumulativeProfit: player.cumulativeProfit
     });
@@ -392,7 +407,9 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       gameId: activeGame.id,
       roundPhase: activeGame.roundPhase,
       currentRound,
-      totalRounds: rounds.length
+      totalRounds: activeGame.handsPerTur,
+      totalTurs: activeGame.totalTurs,
+      currentTurIndex: activeGame.currentTurIndex
     });
   });
 
@@ -456,7 +473,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       orderQuantity: parsedQty,
       cumulativeProfit: player.cumulativeProfit,
       roundsPlayed: player.history.length,
-      totalRounds: rounds.length,
+      totalRounds: activeGame.handsPerTur,
       currentRound: round,
       roundPhase: activeGame.roundPhase
     });
@@ -528,15 +545,56 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
     activeGame.currentRoundIndex += 1;
     activeGame.activeRoundDemand = null;
     activeGame.activeRoundOrders = new Map();
-    activeGame.leaderboard = calculateLeaderboard(activeGame.players);
+
+    let isTurComplete = false;
+    let isGameOver = false;
+
+    if (activeGame.currentRoundIndex >= activeGame.handsPerTur) {
+      isTurComplete = true;
+
+      // Snapshot leaderboard before score reset
+      activeGame.leaderboard = calculateLeaderboard(activeGame.players);
+
+      const completedTurNumber = activeGame.currentTurIndex + 1;
+      const turEndedAt = new Date().toISOString();
+
+      for (const p of activeGame.players.values()) {
+        p.turHistory.push({
+          turNumber: completedTurNumber,
+          cumulativeProfit: p.cumulativeProfit,
+          rounds: [...p.history]
+        });
+        p.overallProfit += p.cumulativeProfit;
+        p.cumulativeProfit = 0;
+        p.history = [];
+      }
+
+      void recordTurCompleted({
+        gameId: activeGame.id,
+        turNumber: completedTurNumber,
+        endedAt: turEndedAt
+      });
+
+      activeGame.currentTurIndex += 1;
+      activeGame.currentRoundIndex = 0;
+
+      if (activeGame.currentTurIndex >= activeGame.totalTurs) {
+        isGameOver = true;
+      }
+    } else {
+      activeGame.leaderboard = calculateLeaderboard(activeGame.players);
+    }
 
     const nextRound = getRoundForGame(activeGame);
-    const finished = nextRound === null;
-    emitGameEvent(activeGame, "round_ended", { finished });
+    emitGameEvent(activeGame, "round_ended", { finished: isGameOver, turComplete: isTurComplete });
 
     return res.json({
       gameId: activeGame.id,
-      finished,
+      finished: isGameOver,
+      turComplete: isTurComplete,
+      currentTurIndex: activeGame.currentTurIndex,
+      currentTurNumber: activeGame.currentTurIndex + 1,
+      totalTurs: activeGame.totalTurs,
       nextRound,
       roundPhase: activeGame.roundPhase,
       distribution: activeGame.distribution,
@@ -564,7 +622,9 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       gameId: activeGame.id,
       roundPhase: activeGame.roundPhase,
       currentRound,
-      totalRounds: rounds.length,
+      totalRounds: activeGame.handsPerTur,
+      totalTurs: activeGame.totalTurs,
+      currentTurIndex: activeGame.currentTurIndex,
       distribution: activeGame.distribution,
       prices: activeGame.prices,
       finished: currentRound === null,
@@ -574,7 +634,9 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
             nickname: player.nickname,
             roundsPlayed: player.history.length,
             cumulativeProfit: player.cumulativeProfit,
+            overallProfit: player.overallProfit,
             history: player.history,
+            turHistory: player.turHistory,
             lastRoundResult: player.history[player.history.length - 1] || null,
             submittedThisRound:
               activeGame.roundPhase === "active" && activeGame.activeRoundOrders.has(player.id)

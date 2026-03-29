@@ -24,10 +24,10 @@ async function request(path, options = {}) {
   return payload;
 }
 
-export function startGame({ nickname, adminKey }) {
+export function startGame({ nickname, adminKey, handsPerTur, totalTurs }) {
   return request("/start-game", {
     method: "POST",
-    body: JSON.stringify({ nickname, adminKey })
+    body: JSON.stringify({ nickname, adminKey, handsPerTur, totalTurs })
   });
 }
 

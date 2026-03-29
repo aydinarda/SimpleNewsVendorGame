@@ -34,6 +34,11 @@ function App() {
   const [gameId, setGameId] = useState("");
   const [playerId, setPlayerId] = useState("");
   const [totalRounds, setTotalRounds] = useState(5);
+  const [totalTurs, setTotalTurs] = useState(1);
+  const [currentTurNumber, setCurrentTurNumber] = useState(1);
+  const [turHistory, setTurHistory] = useState([]);
+  const [handsPerTurInput, setHandsPerTurInput] = useState("5");
+  const [totalTursInput, setTotalTursInput] = useState("1");
   const [currentRound, setCurrentRound] = useState(null);
   const [roundPhase, setRoundPhase] = useState("pending");
   const [distributionType, setDistributionType] = useState("uniform");
@@ -57,6 +62,11 @@ function App() {
   const cumulativeProfit = useMemo(
     () => history.reduce((sum, row) => sum + row.profit, 0),
     [history]
+  );
+
+  const overallProfit = useMemo(
+    () => turHistory.reduce((sum, tur) => sum + tur.cumulativeProfit, 0),
+    [turHistory]
   );
 
     // Restore session on page load from URL params or localStorage
@@ -94,7 +104,9 @@ function App() {
             setSalvagePrice(String(data.prices?.salvagePrice ?? 5));
             setHasUnsavedPriceChanges(false);
             setTotalRounds(data.totalRounds || 5);
-          
+            setTotalTurs(data.totalTurs || 1);
+            setCurrentTurNumber((data.currentTurIndex || 0) + 1);
+
             setStatusMessage("📍 Session restored from previous session");
           } catch (error) {
             console.error("Failed to restore session:", error);
@@ -124,6 +136,8 @@ function App() {
     setCurrentRound(data.currentRound);
     setRoundPhase(data.roundPhase || "pending");
     setTotalRounds(data.totalRounds || 5);
+    setTotalTurs(data.totalTurs || 1);
+    setCurrentTurNumber((data.currentTurIndex || 0) + 1);
 
     if (data.distribution) {
       const shouldPreserveAdminDraft =
@@ -160,6 +174,7 @@ function App() {
       setHistory(data.player.history || []);
       setLastRoundResult(data.player.lastRoundResult || null);
       setIsRoundSubmitted(Boolean(data.player.submittedThisRound));
+      setTurHistory(data.player.turHistory || []);
     }
 
     if (showLeaderboard) {
@@ -187,7 +202,9 @@ function App() {
     try {
       const data = await startGame({
         nickname: nicknameInput.trim(),
-        adminKey: adminMode ? adminKey.trim() : undefined
+        adminKey: adminMode ? adminKey.trim() : undefined,
+        handsPerTur: adminMode ? Number(handsPerTurInput) : undefined,
+        totalTurs: adminMode ? Number(totalTursInput) : undefined
       });
 
       setNickname(data.nickname);
@@ -208,6 +225,9 @@ function App() {
       setSalvagePrice(String(data.prices?.salvagePrice ?? 5));
       setHasUnsavedPriceChanges(false);
       setTotalRounds(data.totalRounds);
+      setTotalTurs(data.totalTurs || 1);
+      setCurrentTurNumber((data.currentTurIndex || 0) + 1);
+      setTurHistory([]);
       setHistory([]);
       setLastRoundResult(null);
       setIsRoundSubmitted(false);
@@ -277,6 +297,9 @@ function App() {
       const data = await endRound({ gameId, adminToken });
       setCurrentRound(data.nextRound);
       setRoundPhase(data.roundPhase);
+      if (data.currentTurIndex !== undefined) {
+        setCurrentTurNumber(data.currentTurNumber || 1);
+      }
       if (data.distribution) {
         setDistributionType(data.distribution.type ?? "uniform");
         setDistributionMin(String(data.distribution.min));
@@ -294,8 +317,10 @@ function App() {
       setLeaderboardRows(data.leaderboard || []);
       setStatusMessage(
         data.finished
-          ? "Final round ended. Leaderboard is ready."
-          : `Round ended. Next round is ${data.nextRound?.id}.`
+          ? "Game complete. All turns finished."
+          : data.turComplete
+          ? `Turn ${data.currentTurNumber - 1} complete. Starting Turn ${data.currentTurNumber}.`
+          : `Hand ended. Next hand is ${data.nextRound?.id}.`
       );
       setIsRoundSubmitted(false);
       await syncGameState();
@@ -533,6 +558,24 @@ function App() {
                   onChange={(event) => setAdminKey(event.target.value)}
                   placeholder="admin key"
                 />
+                <label htmlFor="handsPerTur">Hands per turn</label>
+                <input
+                  id="handsPerTur"
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={handsPerTurInput}
+                  onChange={(event) => setHandsPerTurInput(event.target.value)}
+                />
+                <label htmlFor="totalTurs">Number of turns</label>
+                <input
+                  id="totalTurs"
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={totalTursInput}
+                  onChange={(event) => setTotalTursInput(event.target.value)}
+                />
               </>
             ) : null}
 
@@ -549,39 +592,41 @@ function App() {
       <main className="page">
         <header className="hero">
           <p className="eyebrow">Final Result</p>
-          <h1>{nickname}, season is complete.</h1>
-          <p className="total-profit">Total Profit: ${cumulativeProfit.toLocaleString("en-US")}</p>
+          <h1>{nickname}, game complete.</h1>
+          <p className="total-profit">Overall Profit: ${overallProfit.toLocaleString("en-US")}</p>
         </header>
 
         <button type="button" onClick={handleLeaderboardToggle}>
           {showLeaderboard ? "Hide Leaderboard" : "Show Leaderboard"}
         </button>
 
-        {showLeaderboard ? <Leaderboard rows={leaderboardRows} title="Leaderboard" /> : null}
+        {showLeaderboard ? <Leaderboard rows={leaderboardRows} title="Final Leaderboard" /> : null}
 
-        <section className="card history-card">
-          <h3>Round Summary</h3>
-          <table className="leaderboard-table">
-            <thead>
-              <tr>
-                <th>Round</th>
-                <th>Order</th>
-                <th>Demand</th>
-                <th>Profit</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.map((row) => (
-                <tr key={row.round}>
-                  <td>{row.round}</td>
-                  <td>{row.orderQuantity}</td>
-                  <td>{row.realizedDemand}</td>
-                  <td>${row.profit.toLocaleString("en-US")}</td>
+        {turHistory.map((tur) => (
+          <section key={tur.turNumber} className="card history-card">
+            <h3>Turn {tur.turNumber} — ${tur.cumulativeProfit.toLocaleString("en-US")}</h3>
+            <table className="leaderboard-table">
+              <thead>
+                <tr>
+                  <th>Hand</th>
+                  <th>Order</th>
+                  <th>Demand</th>
+                  <th>Profit</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+              </thead>
+              <tbody>
+                {tur.rounds.map((row) => (
+                  <tr key={row.round}>
+                    <td>{row.round}</td>
+                    <td>{row.orderQuantity}</td>
+                    <td>{row.realizedDemand}</td>
+                    <td>${row.profit.toLocaleString("en-US")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        ))}
       </main>
     );
   }
@@ -594,6 +639,9 @@ function App() {
         <p className="muted">
           Decide order quantities and submit. Server computes demand and profit.
         </p>
+        {totalTurs > 1 ? (
+          <p className="muted">Turn {currentTurNumber} / {totalTurs}</p>
+        ) : null}
       </header>
 
       {isAdmin ? (
