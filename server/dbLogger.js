@@ -97,6 +97,7 @@ export async function recordRoundStarted({
   roundId,
   roundNo,
   distribution,
+  prices,
   realizedDemand,
   startedAt
 }) {
@@ -106,8 +107,14 @@ export async function recordRoundStarted({
         game_id: gameId,
         round_id: String(roundId),
         round_no: roundNo,
+        dist_type: distribution.type,
         dist_min: distribution.min,
         dist_max: distribution.max,
+        dist_mean: distribution.mean ?? null,
+        dist_std_dev: distribution.stdDev ?? null,
+        wholesale_cost: prices.wholesaleCost,
+        retail_price: prices.retailPrice,
+        salvage_price: prices.salvagePrice,
         realized_demand: realizedDemand,
         started_at: startedAt
       },

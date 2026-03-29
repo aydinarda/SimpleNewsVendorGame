@@ -381,6 +381,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       roundId: currentRound.id,
       roundNo: activeGame.currentRoundIndex + 1,
       distribution: activeGame.distribution,
+      prices: activeGame.prices,
       realizedDemand: activeGame.activeRoundDemand,
       startedAt
     });
@@ -508,9 +509,9 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
 
       dbRoundResults.push({
         playerId: player.id,
-        sold: roundResult.sold,
-        leftover: roundResult.leftover,
-        stockout: roundResult.stockout,
+        sold: roundResult.soldUnits,
+        leftover: roundResult.unsoldUnits,
+        stockout: Math.max(0, realizedDemand - order.orderQuantity),
         profit: roundResult.profit
       });
     }
