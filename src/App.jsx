@@ -304,11 +304,12 @@ function App() {
     }
   };
 
-  const handleDistributionSave = async () => {
+  const handleParametersSave = async () => {
     try {
       setErrorMessage("");
 
-      let payload = { gameId, adminToken, type: distributionType };
+      // --- Distribution validation ---
+      let distPayload = { gameId, adminToken, type: distributionType };
 
       if (distributionType === "normal") {
         const parsedMean = Number(distributionMean);
@@ -329,7 +330,7 @@ function App() {
           return;
         }
 
-        payload = { ...payload, mean: parsedMean, stdDev: parsedStdDev };
+        distPayload = { ...distPayload, mean: parsedMean, stdDev: parsedStdDev };
       } else {
         const parsedMin = Number(distributionMin);
         const parsedMax = Number(distributionMax);
@@ -349,37 +350,10 @@ function App() {
           return;
         }
 
-        payload = { ...payload, min: parsedMin, max: parsedMax };
+        distPayload = { ...distPayload, min: parsedMin, max: parsedMax };
       }
 
-      const data = await setDistribution(payload);
-
-      setDistributionType(data.distribution.type ?? "uniform");
-      setDistributionMin(String(data.distribution.min));
-      setDistributionMax(String(data.distribution.max));
-      setDistributionMean(String(data.distribution.mean ?? 100));
-      setDistributionStdDev(String(data.distribution?.stdDev ?? 10));
-      setHasUnsavedDistributionChanges(false);
-      setCurrentRound((prev) => {
-        if (!prev) return prev;
-        return { ...prev, distribution: data.distribution };
-      });
-
-      const desc =
-        data.distribution.type === "normal"
-          ? `Normal distribution updated (mean=${data.distribution.mean}, stdDev=${data.distribution.stdDev}).`
-          : `Uniform distribution updated to [${data.distribution.min}, ${data.distribution.max}].`;
-
-      setStatusMessage(desc);
-    } catch (error) {
-      setErrorMessage(error.message);
-    }
-  };
-
-  const handlePricesSave = async () => {
-    try {
-      setErrorMessage("");
-
+      // --- Prices validation ---
       const parsedWholesale = Number(wholesaleCost);
       const parsedRetail = Number(retailPrice);
       const parsedSalvage = Number(salvagePrice);
@@ -409,7 +383,9 @@ function App() {
         return;
       }
 
-      const data = await setPrices({
+      // --- Save both ---
+      const distData = await setDistribution(distPayload);
+      const pricesData = await setPrices({
         gameId,
         adminToken,
         wholesaleCost: parsedWholesale,
@@ -417,12 +393,29 @@ function App() {
         salvagePrice: parsedSalvage
       });
 
-      setWholesaleCost(String(data.prices.wholesaleCost));
-      setRetailPrice(String(data.prices.retailPrice));
-      setSalvagePrice(String(data.prices.salvagePrice));
+      setDistributionType(distData.distribution.type ?? "uniform");
+      setDistributionMin(String(distData.distribution.min));
+      setDistributionMax(String(distData.distribution.max));
+      setDistributionMean(String(distData.distribution.mean ?? 100));
+      setDistributionStdDev(String(distData.distribution?.stdDev ?? 10));
+      setHasUnsavedDistributionChanges(false);
+      setCurrentRound((prev) => {
+        if (!prev) return prev;
+        return { ...prev, distribution: distData.distribution };
+      });
+
+      setWholesaleCost(String(pricesData.prices.wholesaleCost));
+      setRetailPrice(String(pricesData.prices.retailPrice));
+      setSalvagePrice(String(pricesData.prices.salvagePrice));
       setHasUnsavedPriceChanges(false);
+
+      const distDesc =
+        distData.distribution.type === "normal"
+          ? `Normal (μ=${distData.distribution.mean}, σ=${distData.distribution.stdDev})`
+          : `Uniform [${distData.distribution.min}, ${distData.distribution.max}]`;
+
       setStatusMessage(
-        `Prices updated: Retail $${data.prices.retailPrice}, Wholesale $${data.prices.wholesaleCost}, Salvage $${data.prices.salvagePrice}.`
+        `Parameters updated — Distribution: ${distDesc} | Retail $${pricesData.prices.retailPrice}, Wholesale $${pricesData.prices.wholesaleCost}, Salvage $${pricesData.prices.salvagePrice}.`
       );
     } catch (error) {
       setErrorMessage(error.message);
@@ -674,13 +667,6 @@ function App() {
               </>
             )}
 
-            <button
-              type="button"
-              onClick={handleDistributionSave}
-              disabled={roundPhase === "active"}
-            >
-              Save Distribution
-            </button>
           </div>
           <div className="price-controls">
             <label htmlFor="price-wholesale">Wholesale Cost</label>
@@ -716,14 +702,14 @@ function App() {
               }}
               disabled={roundPhase === "active"}
             />
-            <button
-              type="button"
-              onClick={handlePricesSave}
-              disabled={roundPhase === "active"}
-            >
-              Save Prices
-            </button>
           </div>
+          <button
+            type="button"
+            onClick={handleParametersSave}
+            disabled={roundPhase === "active"}
+          >
+            Set Parameters
+          </button>
           <div className="admin-buttons">
             <button
               type="button"
@@ -746,7 +732,15 @@ function App() {
       {currentRound ? (
         <>
           <ProgressBar currentRound={currentRound.id} totalRounds={totalRounds} />
-          <RoundInfo round={currentRound} totalRounds={totalRounds} />
+          <RoundInfo
+            round={currentRound}
+            totalRounds={totalRounds}
+            prices={{
+              wholesaleCost: Number(wholesaleCost),
+              retailPrice: Number(retailPrice),
+              salvagePrice: Number(salvagePrice)
+            }}
+          />
           <OrderForm
             onSubmit={handleOrderSubmit}
             disabled={isRoundSubmitted || roundPhase !== "active"}

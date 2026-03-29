@@ -1,5 +1,16 @@
 import { describeDistribution } from "../utils/demand";
 
+function PricesDetail({ prices }) {
+  if (!prices) return null;
+  return (
+    <div className="prices-detail">
+      <span>Retail Price: <strong>${prices.retailPrice}</strong></span>
+      <span>Wholesale Cost: <strong>${prices.wholesaleCost}</strong></span>
+      <span>Salvage Price: <strong>${prices.salvagePrice}</strong></span>
+    </div>
+  );
+}
+
 function DistributionDetail({ distribution }) {
   if (distribution.type === "normal") {
     return (
@@ -16,11 +27,12 @@ function DistributionDetail({ distribution }) {
   );
 }
 
-function RoundInfo({ round, totalRounds }) {
+function RoundInfo({ round, totalRounds, prices }) {
   return (
     <section className="card">
       <p className="eyebrow">Round {round.id} / {totalRounds}</p>
       <h2>{round.title}</h2>
+      <PricesDetail prices={prices} />
       <DistributionDetail distribution={round.distribution} />
     </section>
   );
