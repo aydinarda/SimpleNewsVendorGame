@@ -393,6 +393,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
 
     void recordRoundStarted({
       gameId: activeGame.id,
+      turNo: activeGame.currentTurIndex + 1,
       roundId: currentRound.id,
       roundNo: activeGame.currentRoundIndex + 1,
       distribution: activeGame.distribution,
@@ -454,6 +455,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
 
     void recordOrderSubmitted({
       gameId: activeGame.id,
+      turNo: activeGame.currentTurIndex + 1,
       roundId: round.id,
       playerId: player.id,
       nickname: player.nickname,
@@ -535,6 +537,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
 
     void recordRoundEnded({
       gameId: activeGame.id,
+      turNo: activeGame.currentTurIndex + 1,
       roundId: endingRound.id,
       realizedDemand,
       endedAt,

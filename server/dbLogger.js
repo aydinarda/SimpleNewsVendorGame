@@ -105,6 +105,7 @@ export async function recordTurCompleted({ gameId, turNumber, endedAt }) {
 
 export async function recordRoundStarted({
   gameId,
+  turNo,
   roundId,
   roundNo,
   distribution,
@@ -116,6 +117,7 @@ export async function recordRoundStarted({
     supabase.from("rounds").upsert(
       {
         game_id: gameId,
+        tur_no: turNo,
         round_id: String(roundId),
         round_no: roundNo,
         dist_type: distribution.type,
@@ -129,13 +131,14 @@ export async function recordRoundStarted({
         realized_demand: realizedDemand,
         started_at: startedAt
       },
-      { onConflict: "game_id,round_id" }
+      { onConflict: "game_id,tur_no,round_id" }
     )
   );
 }
 
 export async function recordOrderSubmitted({
   gameId,
+  turNo,
   roundId,
   playerId,
   nickname,
@@ -145,6 +148,7 @@ export async function recordOrderSubmitted({
   await runQuery("recordOrderSubmitted", () =>
     supabase.from("orders").insert({
       game_id: gameId,
+      tur_no: turNo,
       round_id: String(roundId),
       player_id: playerId,
       nickname,
@@ -154,7 +158,7 @@ export async function recordOrderSubmitted({
   );
 }
 
-export async function recordRoundEnded({ gameId, roundId, realizedDemand, endedAt, results }) {
+export async function recordRoundEnded({ gameId, turNo, roundId, realizedDemand, endedAt, results }) {
   await runQuery("recordRoundEnded.round", () =>
     supabase
       .from("rounds")
@@ -163,6 +167,7 @@ export async function recordRoundEnded({ gameId, roundId, realizedDemand, endedA
         ended_at: endedAt
       })
       .eq("game_id", gameId)
+      .eq("tur_no", turNo)
       .eq("round_id", String(roundId))
   );
 
@@ -177,6 +182,7 @@ export async function recordRoundEnded({ gameId, roundId, realizedDemand, endedA
           profit: result.profit
         })
         .eq("game_id", gameId)
+        .eq("tur_no", turNo)
         .eq("round_id", String(roundId))
         .eq("player_id", result.playerId)
     );

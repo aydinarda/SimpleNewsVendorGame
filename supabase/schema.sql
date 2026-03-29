@@ -20,6 +20,7 @@ create table if not exists players (
 create table if not exists rounds (
   id uuid primary key default gen_random_uuid(),
   game_id text not null,
+  tur_no int not null default 1,
   round_id text not null,
   round_no int not null,
   dist_type text not null default 'uniform',
@@ -33,12 +34,13 @@ create table if not exists rounds (
   realized_demand int,
   started_at timestamptz not null default now(),
   ended_at timestamptz,
-  unique (game_id, round_id)
+  unique (game_id, tur_no, round_id)
 );
 
 create table if not exists orders (
   id uuid primary key default gen_random_uuid(),
   game_id text not null,
+  tur_no int not null default 1,
   round_id text not null,
   player_id text not null,
   nickname text not null,
@@ -48,7 +50,7 @@ create table if not exists orders (
   stockout int,
   profit numeric(12,2),
   submitted_at timestamptz not null default now(),
-  unique (game_id, round_id, player_id)
+  unique (game_id, tur_no, round_id, player_id)
 );
 
 create table if not exists session_events (
