@@ -1,7 +1,3 @@
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
-
 function randomUniform(min, max) {
   return Math.round(min + Math.random() * (max - min));
 }
@@ -33,8 +29,11 @@ export function sampleDemand(distribution) {
     case "triangular":
       return randomTriangular(distribution.min, distribution.mode, distribution.max);
     case "normal": {
-      const draw = randomNormal(distribution.mean, distribution.stdDev);
-      return Math.round(clamp(draw, distribution.min, distribution.max));
+      let draw;
+      do {
+        draw = randomNormal(distribution.mean, distribution.stdDev);
+      } while (draw <= 0);
+      return Math.round(draw);
     }
     default:
       throw new Error(`Unsupported distribution type: ${distribution.type}`);
