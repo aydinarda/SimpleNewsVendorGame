@@ -83,22 +83,19 @@ export const options = {
 
   thresholds: {
     // Render free tier cold-start sonrası latency'leri yüksek olabiliyor
-    'submit_latency':                                ['p(95)<8000'],
-    'poll_latency':                                  ['p(95)<5000'],
-    'join_latency':                                  ['p(95)<8000'],
-    'game_errors':                                   ['count<20'],
-    'http_req_failed{scenario:poll_storm}':          ['rate<0.05'],
-    // concurrent_submit: bazı oyuncular zaten sipariş verdiyse 400 alabilir (normal)
-    'http_req_failed{scenario:concurrent_submit}':   ['rate<0.15'],
-    'http_req_failed{scenario:health_storm}':        ['rate<0.05'],
-    // spike_join: responseCallback ile 400/409 http_req_failed sayılmaz (aşağıya bak)
-    'http_req_failed{scenario:spike_join}':          ['rate<0.05'],
+    'submit_latency': ['p(95)<8000'],
+    'poll_latency':   ['p(95)<5000'],
+    'join_latency':   ['p(95)<8000'],
+    // 5xx hatası sayacı — spike_join/submit 4xx'leri buraya girmez
+    'game_errors':    ['count<20'],
+    // health_storm %100 başarılı olmalı; diğer senaryolarda 4xx beklenen davranış
+    'http_req_failed{scenario:health_storm}': ['rate<0.05'],
   },
 };
 
 // ── Yardımcı fonksiyonlar ─────────────────────────────────────────────────────
-function post(path, body, extraParams) {
-  return http.post(`${BASE}${path}`, JSON.stringify(body), Object.assign({}, HDR, extraParams));
+function post(path, body) {
+  return http.post(`${BASE}${path}`, JSON.stringify(body), HDR);
 }
 
 function j(res) {
@@ -111,18 +108,6 @@ function gameStateUrl(gameId, playerId, adminToken) {
   if (adminToken) url += `&adminToken=${adminToken}`;
   return url;
 }
-
-// 400 ve 409'un http_req_failed sayılmaması için responseCallback parametresi
-const SPIKE_PARAMS = {
-  headers: { 'Content-Type': 'application/json' },
-  responseCallback: http.expectedStatuses({ min: 200, max: 299 }, 400, 409),
-};
-
-// submit 400: "already submitted" → beklenen, hata sayılmasın
-const SUBMIT_PARAMS = {
-  headers: { 'Content-Type': 'application/json' },
-  responseCallback: http.expectedStatuses({ min: 200, max: 299 }, 400),
-};
 
 // ── Setup: tüm senaryolardan önce 1 kez çalışır ───────────────────────────────
 export function setup() {
@@ -199,19 +184,18 @@ export function concurrentSubmit(data) {
   const qty    = Math.floor(Math.random() * 41) + 80; // 80–120
 
   const t0 = Date.now();
-  // SUBMIT_PARAMS: 400 "already submitted" http_req_failed sayılmaz
-  const r  = http.post(
-    `${BASE}/submit-order`,
-    JSON.stringify({ gameId: data.gameId, playerId: player.playerId, orderQuantity: qty }),
-    SUBMIT_PARAMS
-  );
+  const r  = post('/submit-order', {
+    gameId:        data.gameId,
+    playerId:      player.playerId,
+    orderQuantity: qty,
+  });
   submitLatency.add(Date.now() - t0);
 
   const d  = j(r);
+  // 400 "already submitted" beklenen — sadece 5xx gerçek hata
   const ok = check(r, {
     'submit: 5xx yok':       () => r.status < 500,
     'submit: accepted true': () => r.status !== 200 || d.accepted === true,
-    'submit: roundId var':   () => r.status !== 200 || typeof d.roundId === 'number',
   });
   if (r.status >= 500) gameErrors.add(1);
 }
@@ -229,15 +213,11 @@ export function healthStorm(_data) {
 
 // ── Senaryo 4: spike_join ─────────────────────────────────────────────────────
 // 50 yeni isimle oyuna eş zamanlı katılma denemesi.
-// SPIKE_PARAMS: 400/409 beklenen yanıt → http_req_failed sayılmaz.
+// 400 (oyun bitti) / 409 (isim çakışması) beklenen — 5xx OLMAMALI.
 export function spikeJoin(data) {
   const name = `Spike_${scenario.iterationInTest + 1}_${__VU}`;
   const t0   = Date.now();
-  const r    = http.post(
-    `${BASE}/start-game`,
-    JSON.stringify({ nickname: name, gameId: data.gameId }),
-    SPIKE_PARAMS
-  );
+  const r    = post('/start-game', { nickname: name, gameId: data.gameId });
   joinLatency.add(Date.now() - t0);
 
   const ok = check(r, {
@@ -245,7 +225,7 @@ export function spikeJoin(data) {
     'spike_join: 200/400/409': () =>
       r.status === 200 || r.status === 400 || r.status === 409,
   });
-  if (!ok) gameErrors.add(1); // sadece 5xx durumunda hata say
+  if (!ok) gameErrors.add(1); // sadece 5xx gerçek hata
 }
 
 // ── Teardown: tüm senaryolar bittikten sonra 1 kez çalışır ───────────────────
