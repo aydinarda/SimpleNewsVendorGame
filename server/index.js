@@ -119,6 +119,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
         distribution: { type: "uniform", min: 80, max: 120 },
         prices: { wholesaleCost: 10, retailPrice: 40, salvagePrice: 5 },
         distributionHistory: [],
+        roundHistory: [],
         leaderboard: [],
         activeRoundDemand: null,
         activeRoundOrders: new Map()
@@ -544,6 +545,14 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       results: dbRoundResults
     });
 
+    activeGame.roundHistory.push({
+      roundId: endingRound.id,
+      roundNo: activeGame.currentRoundIndex + 1,
+      turNo: activeGame.currentTurIndex + 1,
+      realizedDemand,
+      endedAt
+    });
+
     activeGame.roundPhase = "pending";
     activeGame.currentRoundIndex += 1;
     activeGame.activeRoundDemand = null;
@@ -602,13 +611,15 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       roundPhase: activeGame.roundPhase,
       distribution: activeGame.distribution,
       prices: activeGame.prices,
-      leaderboard: activeGame.leaderboard
+      leaderboard: activeGame.leaderboard,
+      realizedDemand
     });
   });
 
   app.get("/game-state", (req, res) => {
     const gameId = req.query.gameId;
     const playerId = req.query.playerId;
+    const adminToken = req.query.adminToken;
 
     if (!activeGame || gameId !== activeGame.id) {
       return res.status(400).json({ error: "invalid or inactive game id" });
@@ -620,6 +631,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
     }
 
     const currentRound = getRoundForGame(activeGame);
+    const isValidAdmin = adminToken && adminToken === activeGame.adminToken;
 
     return res.json({
       gameId: activeGame.id,
@@ -631,6 +643,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       distribution: activeGame.distribution,
       prices: activeGame.prices,
       finished: currentRound === null,
+      roundHistory: isValidAdmin ? activeGame.roundHistory : undefined,
       player: player
         ? {
             id: player.id,

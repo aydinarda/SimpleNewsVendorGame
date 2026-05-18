@@ -43,8 +43,11 @@ export function fetchLeaderboard({ gameId }) {
   return request(`/leaderboard?${query.toString()}`);
 }
 
-export function fetchGameState({ gameId, playerId }) {
-  const query = new URLSearchParams({ gameId, playerId });
+export function fetchGameState({ gameId, playerId, adminToken }) {
+  const params = { gameId };
+  if (playerId) params.playerId = playerId;
+  if (adminToken) params.adminToken = adminToken;
+  const query = new URLSearchParams(params);
   return request(`/game-state?${query.toString()}`);
 }
 

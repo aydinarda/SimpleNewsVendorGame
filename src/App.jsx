@@ -56,6 +56,7 @@ function App() {
   const [leaderboardRows, setLeaderboardRows] = useState([]);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [isRoundSubmitted, setIsRoundSubmitted] = useState(false);
+  const [adminRoundHistory, setAdminRoundHistory] = useState([]);
   const [statusMessage, setStatusMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -82,7 +83,8 @@ function App() {
             // Fetch fresh game state from server
             const data = await fetchGameState({
               gameId: sessionToRestore.gameId,
-              playerId: sessionToRestore.playerId
+              playerId: sessionToRestore.playerId,
+              adminToken: storedSession?.adminToken || undefined
             });
 
             // Restore all state from fresh data
@@ -106,6 +108,9 @@ function App() {
             setTotalRounds(data.totalRounds || 5);
             setTotalTurs(data.totalTurs || 1);
             setCurrentTurNumber((data.currentTurIndex || 0) + 1);
+            if (data.roundHistory) {
+              setAdminRoundHistory(data.roundHistory);
+            }
 
             setStatusMessage("📍 Session restored from previous session");
           } catch (error) {
@@ -131,7 +136,7 @@ function App() {
       return;
     }
 
-    const data = await fetchGameState({ gameId, playerId });
+    const data = await fetchGameState({ gameId, playerId, adminToken: isAdmin ? adminToken : undefined });
 
     setCurrentRound(data.currentRound);
     setRoundPhase(data.roundPhase || "pending");
@@ -177,6 +182,10 @@ function App() {
       setTurHistory(data.player.turHistory || []);
     }
 
+    if (data.roundHistory) {
+      setAdminRoundHistory(data.roundHistory);
+    }
+
     if (showLeaderboard) {
       const leaderboardData = await fetchLeaderboard({ gameId });
       setLeaderboardRows(leaderboardData.leaderboard || []);
@@ -187,6 +196,7 @@ function App() {
     showLeaderboard,
     nickname,
     isAdmin,
+    adminToken,
     hasUnsavedDistributionChanges,
     hasUnsavedPriceChanges
   ]);
@@ -320,7 +330,7 @@ function App() {
           ? "Game complete. All turns finished."
           : data.turComplete
           ? `Turn ${data.currentTurNumber - 1} complete. Starting Turn ${data.currentTurNumber}.`
-          : `Hand ended. Next hand is ${data.nextRound?.id}.`
+          : `Hand ended. Next hand is ${data.nextRound?.id}. Realized demand was ${data.realizedDemand}.`
       );
       setIsRoundSubmitted(false);
       await syncGameState();
@@ -774,6 +784,30 @@ function App() {
               End Round
             </button>
           </div>
+
+          {adminRoundHistory.length > 0 ? (
+            <div className="admin-demand-history">
+              <h4>Realized Demands</h4>
+              <table className="leaderboard-table">
+                <thead>
+                  <tr>
+                    <th>Turn</th>
+                    <th>Hand</th>
+                    <th>Realized Demand</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {adminRoundHistory.map((entry, i) => (
+                    <tr key={i}>
+                      <td>{entry.turNo}</td>
+                      <td>{entry.roundNo}</td>
+                      <td>{entry.realizedDemand}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
