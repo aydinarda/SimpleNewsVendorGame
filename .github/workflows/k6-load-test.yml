@@ -1,0 +1,136 @@
+name: k6 Concurrent Load Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_url:
+        description: "Backend URL (boş bırakılırsa RENDER_URL secret kullanılır)"
+        required: false
+        default: ""
+      admin_key:
+        description: "Admin key"
+        required: false
+        default: "admin123"
+
+env:
+  BASE_URL:  ${{ inputs.server_url || secrets.RENDER_URL || 'https://simplenewsvendorgame.onrender.com' }}
+  ADMIN_KEY: ${{ inputs.admin_key  || secrets.ADMIN_KEY  || 'admin123' }}
+
+jobs:
+  k6:
+    name: "poll_storm / concurrent_submit / health_storm / spike_join"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── k6 kurulumu ──────────────────────────────────────────────────────────
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring \
+            --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+            --keyserver hkp://keyserver.ubuntu.com:80 \
+            --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" \
+            | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update -qq
+          sudo apt-get install -y k6
+          k6 version
+
+      # ── Backend'i uyandır ────────────────────────────────────────────────────
+      - name: "Wake up backend"
+        run: |
+          echo "Pinging /health until it responds..."
+          for i in 1 2 3 4 5 6; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 40 "$BASE_URL/health")
+            echo "  Attempt $i: HTTP $STATUS"
+            [ "$STATUS" = "200" ] && { echo "  Backend is up."; break; }
+            [ "$i" = "6" ] && { echo "FAIL: backend did not respond"; exit 1; }
+            sleep 10
+          done
+
+      # ── k6 çalıştır ─────────────────────────────────────────────────────────
+      - name: Run k6 load tests
+        id: k6
+        run: |
+          k6 run \
+            --env BASE_URL="$BASE_URL" \
+            --env ADMIN_KEY="$ADMIN_KEY" \
+            --summary-export=k6-summary.json \
+            --out json=k6-results.ndjson \
+            k6/game_load_test.js
+        continue-on-error: true
+
+      # ── Özet rapor ───────────────────────────────────────────────────────────
+      - name: Print threshold results
+        if: always()
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+
+          try:
+              with open("k6-summary.json") as f:
+                  s = json.load(f)
+          except Exception as e:
+              print(f"k6-summary.json okunamadı: {e}")
+              sys.exit(0)
+
+          metrics    = s.get("metrics",    {})
+          thresholds = s.get("thresholds", {})
+
+          print("\n" + "─" * 50)
+          print("  k6 Threshold Sonuçları")
+          print("─" * 50)
+          all_ok = True
+          for name, t in sorted(thresholds.items()):
+              ok     = t.get("ok", False)
+              status = "PASS ✓" if ok else "FAIL ✗"
+              if not ok: all_ok = False
+              print(f"  {status}  {name}")
+
+          print("\n" + "─" * 50)
+          print("  Temel Metrikler")
+          print("─" * 50)
+
+          def stat(name, unit="ms"):
+              m = metrics.get(name, {})
+              v = m.get("values", {})
+              avg = v.get("avg", "–")
+              p95 = v.get("p(95)", "–")
+              if isinstance(avg, float) and isinstance(p95, float):
+                  return f"avg={avg:.1f}{unit}  p95={p95:.1f}{unit}"
+              return "–"
+
+          print(f"  submit_latency   {stat('submit_latency')}")
+          print(f"  poll_latency     {stat('poll_latency')}")
+          print(f"  join_latency     {stat('join_latency')}")
+
+          errs = metrics.get("game_errors",    {}).get("values", {}).get("count", 0)
+          reqs = metrics.get("http_reqs",      {}).get("values", {}).get("count", 0)
+          fail = metrics.get("http_req_failed",{}).get("values", {}).get("rate",  0)
+          print(f"  game_errors      {int(errs)}")
+          print(f"  http_reqs total  {int(reqs)}")
+          print(f"  http_req_failed  {fail*100:.2f}%")
+          print("─" * 50)
+
+          if not all_ok:
+              print("\nBir veya daha fazla eşik BAŞARISIZ.")
+              sys.exit(1)
+          EOF
+
+      - name: Propagate k6 exit code
+        if: steps.k6.outcome == 'failure'
+        run: exit 1
+
+      # ── Artifact ─────────────────────────────────────────────────────────────
+      - name: Upload k6 results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-results-${{ github.run_id }}
+          path: |
+            k6-summary.json
+            k6-results.ndjson
+          retention-days: 30
