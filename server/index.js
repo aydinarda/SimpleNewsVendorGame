@@ -60,6 +60,7 @@ function getRoundForGame(game) {
 export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
   const app = express();
   let activeGame = null;
+  const submitAttempts = new Map(); // playerId -> { count, windowStart }
 
   if (isDbEnabled()) {
     console.log("Supabase persistence is enabled.");
@@ -426,6 +427,18 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
     if (!player) {
       return res.status(404).json({ error: "player not found" });
     }
+
+    const now = Date.now();
+    const attempt = submitAttempts.get(player.id) || { count: 0, windowStart: now };
+    if (now - attempt.windowStart > 60_000) {
+      attempt.count = 0;
+      attempt.windowStart = now;
+    }
+    if (attempt.count >= 10) {
+      return res.status(429).json({ error: "too many requests, please slow down" });
+    }
+    attempt.count += 1;
+    submitAttempts.set(player.id, attempt);
 
     if (activeGame.roundPhase !== "active") {
       return res.status(400).json({ error: "round is not active" });

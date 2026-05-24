@@ -514,6 +514,19 @@ function App() {
         const message = JSON.parse(event.data);
 
         if (message?.type === "game_event") {
+          const eventType = message.payload?.type;
+
+          if (eventType === "order_submitted") {
+            return;
+          }
+
+          if (eventType === "round_started") {
+            setRoundPhase(message.payload.roundPhase || "active");
+            setCurrentRound(message.payload.currentRound || null);
+            setIsRoundSubmitted(false);
+            return;
+          }
+
           syncGameState().catch(() => {
             // Polling will recover eventual consistency.
           });
