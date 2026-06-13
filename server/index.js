@@ -650,11 +650,12 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
   return app;
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+export function createGameServer({ adminKey } = {}) {
   const clients = new Set();
 
   const server = http.createServer(
     createApp({
+      adminKey,
       onGameEvent: (eventPayload) => {
         const message = JSON.stringify({ type: "game_event", payload: eventPayload });
 
@@ -711,6 +712,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       wss.emit("connection", ws, request);
     });
   });
+
+  return { server, wss };
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const { server } = createGameServer();
 
   server.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
