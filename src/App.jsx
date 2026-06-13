@@ -545,11 +545,13 @@ function App() {
     return (
       <main className="page auth-page">
         <section className="card auth-card">
-          <p className="eyebrow">EverChic Fashions</p>
-          <h1>Hawaiian Shirt Newsvendor Game</h1>
-          <p className="muted">
-            Enter a nickname to join an active game. Use admin mode to create one.
-          </p>
+          <div className="auth-header">
+            <h1 className="auth-title">EverChic Fashions</h1>
+            <p className="auth-subtitle">Hawaiian Shirt Newsvendor Game</p>
+            <p className="muted">
+              Enter a nickname to join an active game. Use admin mode to create one.
+            </p>
+          </div>
           <form onSubmit={handleNicknameSubmit} className="order-form">
             <label htmlFor="nickname">Nickname</label>
             <input

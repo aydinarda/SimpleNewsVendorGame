@@ -19,10 +19,10 @@ body {
   margin: 0;
   color: var(--text);
   min-height: 100vh;
+  /* Tint katmanı görseli yumuşatır; alpha'yı düşürürsen görsel netleşir, artırırsan soluklaşır */
   background:
-    radial-gradient(circle at 10% 20%, rgba(255, 153, 74, 0.22), transparent 35%),
-    radial-gradient(circle at 90% 10%, rgba(82, 140, 255, 0.16), transparent 30%),
-    linear-gradient(160deg, var(--bg), var(--bg-alt));
+    linear-gradient(rgba(244, 239, 230, 0.55), rgba(255, 248, 240, 0.68)),
+    url("/background.png") center center / cover no-repeat fixed;
 }
 
 .page {
@@ -87,6 +87,34 @@ h3 {
 
 .auth-card {
   width: min(100%, 520px);
+  padding: 32px 28px;
+  box-shadow: 0 24px 60px rgba(22, 20, 16, 0.18);
+}
+
+.auth-header {
+  text-align: center;
+  margin-bottom: 6px;
+}
+
+.auth-title {
+  font-size: clamp(2.1rem, 5.5vw, 3rem);
+  line-height: 1.02;
+  color: var(--accent-dark);
+}
+
+.auth-subtitle {
+  margin: 10px 0 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: clamp(0.95rem, 2.2vw, 1.15rem);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+.auth-header .muted {
+  margin-top: 14px;
+  font-size: 0.95rem;
 }
 
 .order-form {
