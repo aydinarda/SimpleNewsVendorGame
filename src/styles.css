@@ -2,8 +2,8 @@
   --bg: #f4efe6;
   --bg-alt: #fff8f0;
   --surface: #fffcf8;
-  --text: #1e1c19;
-  --muted: #6f665d;
+  --text: #38332d;
+  --muted: #7a7167;
   --accent: #ff5f2e;
   --accent-dark: #cf4319;
   --line: #e5dbcd;
@@ -31,6 +31,48 @@ body {
   padding: 32px 16px 64px;
   display: grid;
   gap: 14px;
+}
+
+.page-wide {
+  width: min(100%, 1140px);
+}
+
+/* In-game two-column layout: game on the left, leaderboard parallel on the right */
+.game-layout {
+  display: grid;
+  gap: 14px;
+}
+
+.game-main,
+.game-side {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  min-width: 0;
+}
+
+.game-layout.with-leaderboard {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 340px);
+  align-items: start;
+}
+
+.game-layout.with-leaderboard .game-side {
+  position: sticky;
+  top: 16px;
+}
+
+.leaderboard-toggle {
+  width: 100%;
+}
+
+@media (max-width: 860px) {
+  .game-layout.with-leaderboard {
+    grid-template-columns: 1fr;
+  }
+
+  .game-layout.with-leaderboard .game-side {
+    position: static;
+  }
 }
 
 .auth-page {
@@ -286,6 +328,107 @@ button:disabled {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.round-info h2 {
+  margin-top: 6px;
+}
+
+.prices-detail {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.price-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg-alt);
+  border: 1px solid var(--line);
+}
+
+.price-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.price-value {
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.dist-badge {
+  margin-top: 14px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(255, 95, 46, 0.08);
+  border: 1px solid rgba(255, 95, 46, 0.2);
+}
+
+.dist-badge-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--accent-dark);
+}
+
+.dist-badge-value {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.emoji-rain {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 60;
+}
+
+.emoji-rain-piece {
+  position: absolute;
+  top: 0;
+  will-change: transform, opacity;
+  animation-name: emoji-fall;
+  animation-timing-function: ease-in;
+  animation-fill-mode: forwards;
+  user-select: none;
+}
+
+@keyframes emoji-fall {
+  0% {
+    transform: translate3d(0, -12vh, 0) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--drift), 112vh, 0) rotate(var(--rotate));
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .emoji-rain {
+    display: none;
+  }
 }
 
 @keyframes rise {

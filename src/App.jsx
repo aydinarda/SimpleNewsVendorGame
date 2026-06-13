@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import RoundInfo from "./components/RoundInfo";
 import OrderForm from "./components/OrderForm";
 import RoundResult from "./components/RoundResult";
 import Leaderboard from "./components/Leaderboard";
 import ProgressBar from "./components/ProgressBar";
+import EmojiRain from "./components/EmojiRain";
 import {
   endRound,
   fetchGameState,
@@ -59,6 +60,9 @@ function App() {
   const [adminRoundHistory, setAdminRoundHistory] = useState([]);
   const [statusMessage, setStatusMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [emojiBurstKey, setEmojiBurstKey] = useState(0);
+  const [emojiRaining, setEmojiRaining] = useState(false);
+  const prevRoundRef = useRef(null);
 
   const cumulativeProfit = useMemo(
     () => history.reduce((sum, row) => sum + row.profit, 0),
@@ -186,7 +190,9 @@ function App() {
       setAdminRoundHistory(data.roundHistory);
     }
 
-    if (showLeaderboard) {
+    // Always pull the authoritative leaderboard when the game is over so it shows
+    // on every player's screen, not just the admin's.
+    if (showLeaderboard || data.finished) {
       const leaderboardData = await fetchLeaderboard({ gameId });
       setLeaderboardRows(leaderboardData.leaderboard || []);
     }
@@ -541,6 +547,28 @@ function App() {
     };
   }, [WS_BASE_URL, gameId, playerId, syncGameState]);
 
+  // Trigger a falling-emoji burst whenever the hand changes (client-only, no network).
+  useEffect(() => {
+    const roundId = currentRound?.id ?? null;
+
+    if (prevRoundRef.current !== null && roundId !== null && roundId !== prevRoundRef.current) {
+      setEmojiBurstKey((key) => key + 1);
+      setEmojiRaining(true);
+    }
+
+    prevRoundRef.current = roundId;
+  }, [currentRound?.id]);
+
+  // Auto-clear the burst after the animation finishes.
+  useEffect(() => {
+    if (!emojiRaining) {
+      return undefined;
+    }
+
+    const timeoutId = setTimeout(() => setEmojiRaining(false), 4000);
+    return () => clearTimeout(timeoutId);
+  }, [emojiBurstKey, emojiRaining]);
+
   if (!nickname) {
     return (
       <main className="page auth-page">
@@ -621,43 +649,14 @@ function App() {
           <p className="total-profit">Overall Profit: ${overallProfit.toLocaleString("en-US")}</p>
         </header>
 
-        <button type="button" onClick={handleLeaderboardToggle}>
-          {showLeaderboard ? "Hide Leaderboard" : "Show Leaderboard"}
-        </button>
-
-        {showLeaderboard ? <Leaderboard rows={leaderboardRows} title="Final Leaderboard" /> : null}
-
-        {turHistory.map((tur) => (
-          <section key={tur.turNumber} className="card history-card">
-            <h3>Turn {tur.turNumber} — ${tur.cumulativeProfit.toLocaleString("en-US")}</h3>
-            <table className="leaderboard-table">
-              <thead>
-                <tr>
-                  <th>Hand</th>
-                  <th>Order</th>
-                  <th>Demand</th>
-                  <th>Profit</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tur.rounds.map((row) => (
-                  <tr key={row.round}>
-                    <td>{row.round}</td>
-                    <td>{row.orderQuantity}</td>
-                    <td>{row.realizedDemand}</td>
-                    <td>${row.profit.toLocaleString("en-US")}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </section>
-        ))}
+        <Leaderboard rows={leaderboardRows} title="Final Leaderboard" />
       </main>
     );
   }
 
   return (
-    <main className="page">
+    <main className={`page ${showLeaderboard ? "page-wide" : ""}`}>
+      {emojiRaining ? <EmojiRain key={emojiBurstKey} /> : null}
       <header className="hero">
         <p className="eyebrow">EverChic Fashions</p>
         <h1>Welcome, {nickname}</h1>
@@ -669,6 +668,8 @@ function App() {
         ) : null}
       </header>
 
+      <div className={`game-layout ${showLeaderboard ? "with-leaderboard" : ""}`}>
+        <div className="game-main">
       {isAdmin ? (
         <section className="card admin-controls">
           <h3>Admin Controls</h3>
@@ -862,16 +863,20 @@ function App() {
         </button>
       ) : null}
 
-      <button type="button" onClick={handleLeaderboardToggle}>
-        {showLeaderboard ? "Hide Leaderboard" : "Show Leaderboard"}
-      </button>
+          <section className="card sticky-score">
+            <p>Current cumulative profit</p>
+            <strong>${cumulativeProfit.toLocaleString("en-US")}</strong>
+          </section>
+        </div>
 
-      {showLeaderboard ? <Leaderboard rows={leaderboardRows} title="Leaderboard" /> : null}
+        <aside className="game-side">
+          <button type="button" className="leaderboard-toggle" onClick={handleLeaderboardToggle}>
+            {showLeaderboard ? "Hide Leaderboard" : "Show Leaderboard"}
+          </button>
 
-      <section className="card sticky-score">
-        <p>Current cumulative profit</p>
-        <strong>${cumulativeProfit.toLocaleString("en-US")}</strong>
-      </section>
+          {showLeaderboard ? <Leaderboard rows={leaderboardRows} title="Leaderboard" /> : null}
+        </aside>
+      </div>
     </main>
   );
 }
