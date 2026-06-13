@@ -8,14 +8,10 @@ import { sampleDemand } from "./utils/demand.js";
 import { calculateProfit } from "./utils/profit.js";
 import {
   isDbEnabled,
-  recordDistributionUpdated,
   recordGameCreated,
-  recordOrderSubmitted,
   recordPlayerJoined,
-  recordPricesUpdated,
   recordRoundEnded,
-  recordRoundStarted,
-  recordTurCompleted
+  recordRoundStarted
 } from "./dbLogger.js";
 
 const PORT = Number(process.env.PORT || 4000);
@@ -171,13 +167,6 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
         adminPlayerId: player.id,
         createdAt: activeGame.createdAt
       });
-
-      void recordDistributionUpdated({
-        gameId: activeGame.id,
-        roundNo: activeGame.currentRoundIndex + 1,
-        distribution: activeGame.distribution,
-        updatedAt: joinedAt
-      });
     }
 
     void recordPlayerJoined({
@@ -290,13 +279,6 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       updatedAt: new Date().toISOString()
     });
 
-    void recordDistributionUpdated({
-      gameId: activeGame.id,
-      roundNo: activeGame.currentRoundIndex + 1,
-      distribution: activeGame.distribution,
-      updatedAt: new Date().toISOString()
-    });
-
     emitGameEvent(activeGame, "distribution_updated");
 
     return res.json({
@@ -350,15 +332,6 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       retailPrice: parsedRetail,
       salvagePrice: parsedSalvage
     };
-
-    const updatedAt = new Date().toISOString();
-
-    void recordPricesUpdated({
-      gameId: activeGame.id,
-      roundNo: activeGame.currentRoundIndex + 1,
-      prices: activeGame.prices,
-      updatedAt
-    });
 
     emitGameEvent(activeGame, "prices_updated");
 
@@ -467,16 +440,6 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       submittedAt: new Date().toISOString()
     });
 
-    void recordOrderSubmitted({
-      gameId: activeGame.id,
-      turNo: activeGame.currentTurIndex + 1,
-      roundId: round.id,
-      playerId: player.id,
-      nickname: player.nickname,
-      orderQuantity: parsedQty,
-      submittedAt: new Date().toISOString()
-    });
-
     emitGameEvent(activeGame, "order_submitted", {
       playerId: player.id,
       nickname: player.nickname,
@@ -542,6 +505,9 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
 
       dbRoundResults.push({
         playerId: player.id,
+        nickname: order.nickname,
+        orderQuantity: order.orderQuantity,
+        submittedAt: order.submittedAt,
         sold: roundResult.soldUnits,
         leftover: roundResult.unsoldUnits,
         stockout: Math.max(0, realizedDemand - order.orderQuantity),
@@ -581,7 +547,6 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       activeGame.leaderboard = calculateLeaderboard(activeGame.players);
 
       const completedTurNumber = activeGame.currentTurIndex + 1;
-      const turEndedAt = new Date().toISOString();
 
       for (const p of activeGame.players.values()) {
         p.turHistory.push({
@@ -593,12 +558,6 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
         p.cumulativeProfit = 0;
         p.history = [];
       }
-
-      void recordTurCompleted({
-        gameId: activeGame.id,
-        turNumber: completedTurNumber,
-        endedAt: turEndedAt
-      });
 
       activeGame.currentTurIndex += 1;
       activeGame.currentRoundIndex = 0;

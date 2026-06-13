@@ -22,5 +22,8 @@
     "@vitejs/plugin-react": "^4.3.4",
     "supertest": "^7.1.1",
     "vite": "^6.2.0"
+  },
+  "allowScripts": {
+    "fsevents@2.3.3": true
   }
 }

@@ -62,47 +62,6 @@ export async function recordPlayerJoined({ gameId, playerId, nickname, isAdmin, 
   );
 }
 
-export async function recordDistributionUpdated({ gameId, roundNo, distribution, updatedAt }) {
-  await runQuery("recordDistributionUpdated", () =>
-    supabase.from("session_events").insert({
-      game_id: gameId,
-      event_type: "distribution_updated",
-      payload_json: {
-        roundNo,
-        distribution,
-        updatedAt
-      },
-      created_at: updatedAt
-    })
-  );
-}
-
-export async function recordPricesUpdated({ gameId, roundNo, prices, updatedAt }) {
-  await runQuery("recordPricesUpdated", () =>
-    supabase.from("session_events").insert({
-      game_id: gameId,
-      event_type: "prices_updated",
-      payload_json: {
-        roundNo,
-        prices,
-        updatedAt
-      },
-      created_at: updatedAt
-    })
-  );
-}
-
-export async function recordTurCompleted({ gameId, turNumber, endedAt }) {
-  await runQuery("recordTurCompleted", () =>
-    supabase.from("session_events").insert({
-      game_id: gameId,
-      event_type: "tur_completed",
-      payload_json: { turNumber, endedAt },
-      created_at: endedAt
-    })
-  );
-}
-
 export async function recordRoundStarted({
   gameId,
   turNo,
@@ -136,28 +95,8 @@ export async function recordRoundStarted({
   );
 }
 
-export async function recordOrderSubmitted({
-  gameId,
-  turNo,
-  roundId,
-  playerId,
-  nickname,
-  orderQuantity,
-  submittedAt
-}) {
-  await runQuery("recordOrderSubmitted", () =>
-    supabase.from("orders").insert({
-      game_id: gameId,
-      tur_no: turNo,
-      round_id: String(roundId),
-      player_id: playerId,
-      nickname,
-      order_qty: orderQuantity,
-      submitted_at: submittedAt
-    })
-  );
-}
-
+// Round bitince TÜM order'lar tek bulk upsert ile yazılır.
+// Submit anında DB'ye dokunulmaz; veri bellekteki activeRoundOrders'tan gelir.
 export async function recordRoundEnded({ gameId, turNo, roundId, realizedDemand, endedAt, results }) {
   await runQuery("recordRoundEnded.round", () =>
     supabase
@@ -171,33 +110,26 @@ export async function recordRoundEnded({ gameId, turNo, roundId, realizedDemand,
       .eq("round_id", String(roundId))
   );
 
-  for (const result of results) {
-    await runQuery("recordRoundEnded.order", () =>
-      supabase
-        .from("orders")
-        .update({
-          sold: result.sold,
-          leftover: result.leftover,
-          stockout: result.stockout,
-          profit: result.profit
-        })
-        .eq("game_id", gameId)
-        .eq("tur_no", turNo)
-        .eq("round_id", String(roundId))
-        .eq("player_id", result.playerId)
-    );
+  if (results.length === 0) {
+    return;
   }
 
-  await runQuery("recordRoundEnded.event", () =>
-    supabase.from("session_events").insert({
-      game_id: gameId,
-      event_type: "round_ended",
-      payload_json: {
-        roundId,
-        realizedDemand,
-        playerCount: results.length
-      },
-      created_at: endedAt
-    })
+  await runQuery("recordRoundEnded.orders", () =>
+    supabase.from("orders").upsert(
+      results.map((result) => ({
+        game_id: gameId,
+        tur_no: turNo,
+        round_id: String(roundId),
+        player_id: result.playerId,
+        nickname: result.nickname,
+        order_qty: result.orderQuantity,
+        sold: result.sold,
+        leftover: result.leftover,
+        stockout: result.stockout,
+        profit: result.profit,
+        submitted_at: result.submittedAt
+      })),
+      { onConflict: "game_id,tur_no,round_id,player_id" }
+    )
   );
 }
