@@ -6,9 +6,9 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
-    setupFiles: "./src/test/setup.js",
+    setupFiles: "./tests/setup.js",
     // Vitest owns *.spec.{js,jsx}; backend node:test files stay on *.test.js
-    include: ["**/*.spec.{js,jsx}"],
+    include: ["tests/**/*.spec.{js,jsx}"],
     exclude: ["node_modules", "dist", "e2e"]
   }
 });

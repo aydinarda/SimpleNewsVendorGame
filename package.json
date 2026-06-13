@@ -7,7 +7,7 @@
     "dev": "vite",
     "server": "node server/index.js",
     "test": "npm run test:server && npm run test:ui",
-    "test:server": "node --test 'server/**/*.test.js'",
+    "test:server": "node --test 'tests/server/**/*.test.js'",
     "test:ui": "vitest run",
     "test:watch": "vitest",
     "build": "vite build",

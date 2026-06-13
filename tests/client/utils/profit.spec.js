@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calculateProfit, PRICE } from "./profit.js";
+import { calculateProfit, PRICE } from "../../../src/utils/profit.js";
 
 describe("calculateProfit (frontend, fixed prices)", () => {
   it("salvages leftover units when overstocked", () => {

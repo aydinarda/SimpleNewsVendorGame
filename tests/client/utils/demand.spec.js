@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sampleDemand, describeDistribution } from "./demand.js";
+import { sampleDemand, describeDistribution } from "../../../src/utils/demand.js";
 
 describe("sampleDemand (frontend)", () => {
   it("uniform stays within [min, max]", () => {

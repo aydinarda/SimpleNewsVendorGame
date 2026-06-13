@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sampleDemand } from "./demand.js";
+import { sampleDemand } from "../../../server/utils/demand.js";
 
 test("uniform stays within [min, max]", () => {
   for (let i = 0; i < 1000; i++) {

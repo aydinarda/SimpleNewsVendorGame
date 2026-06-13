@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import request from "supertest";
-import { createApp } from "./index.js";
+import { createApp } from "../../server/index.js";
 
 const ADMIN_KEY = "admin123";
 
@@ -924,7 +924,7 @@ test("admin cannot set min greater than or equal to max", async () => {
   assert.equal(greater.status, 400);
   assert.equal(greater.body.error, "min cannot be higher than max");
 });
-import { sampleDemand } from "./utils/demand.js";
+import { sampleDemand } from "../../server/utils/demand.js";
 
 test("normal distribution with stdDev=0 always returns mean", () => {
   const dist = { type: "normal", mean: 100, stdDev: 0, min: 100, max: 100 };

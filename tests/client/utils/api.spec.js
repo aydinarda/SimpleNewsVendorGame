@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { startGame, submitOrder, fetchGameState, fetchLeaderboard } from "./api.js";
+import { startGame, submitOrder, fetchGameState, fetchLeaderboard } from "../../../src/utils/api.js";
 
 beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn());

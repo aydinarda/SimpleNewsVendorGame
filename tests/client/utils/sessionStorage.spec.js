@@ -6,7 +6,7 @@ import {
   updateUrlWithSession,
   getSessionFromUrl,
   clearUrlSession
-} from "./sessionStorage.js";
+} from "../../../src/utils/sessionStorage.js";
 
 beforeEach(() => {
   localStorage.clear();
