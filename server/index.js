@@ -485,18 +485,18 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
 
     const dbRoundResults = [];
 
-    for (const order of activeGame.activeRoundOrders.values()) {
-      const player = activeGame.players.get(order.playerId);
-      if (!player) {
-        continue;
-      }
+    // Record a result for every player so non-submitters also see the round outcome.
+    // No order submitted means a quantity of 0 (no inventory, zero profit for the hand).
+    for (const player of activeGame.players.values()) {
+      const order = activeGame.activeRoundOrders.get(player.id);
+      const orderQuantity = order ? order.orderQuantity : 0;
 
-      const details = calculateProfit(order.orderQuantity, realizedDemand, activeGame.prices);
+      const details = calculateProfit(orderQuantity, realizedDemand, activeGame.prices);
       const roundResult = {
         round: endingRound.id,
         title: endingRound.title,
         distribution: { ...activeGame.distribution },
-        orderQuantity: order.orderQuantity,
+        orderQuantity,
         realizedDemand,
         ...details,
         createdAt: new Date().toISOString()
@@ -507,12 +507,12 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
 
       dbRoundResults.push({
         playerId: player.id,
-        nickname: order.nickname,
-        orderQuantity: order.orderQuantity,
-        submittedAt: order.submittedAt,
+        nickname: player.nickname,
+        orderQuantity,
+        submittedAt: order ? order.submittedAt : null,
         sold: roundResult.soldUnits,
         leftover: roundResult.unsoldUnits,
-        stockout: Math.max(0, realizedDemand - order.orderQuantity),
+        stockout: Math.max(0, realizedDemand - orderQuantity),
         profit: roundResult.profit
       });
     }

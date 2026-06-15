@@ -83,6 +83,31 @@ test("a player who never submits scores zero and ranks last", async () => {
   ]);
 });
 
+test("a non-submitter still receives a zero-order round result they can see", async () => {
+  const app = createApp({ adminKey: ADMIN_KEY });
+  // Two hands so ending hand 1 does not complete the tur (which would reset history).
+  const admin = await request(app)
+    .post("/start-game")
+    .send({ nickname: "Alice", adminKey: ADMIN_KEY, handsPerTur: 2 });
+  const { gameId, adminToken, playerId: alice } = admin.body;
+  await request(app).post("/set-distribution").send({ gameId, adminToken, type: "normal", mean: 100, stdDev: 0 });
+  const idle = await join(app, gameId, "Idle");
+
+  await request(app).post("/start-round").send({ gameId, adminToken });
+  await request(app).post("/submit-order").send({ gameId, playerId: alice, orderQuantity: 100 });
+  // Idle never submits, yet the round outcome should still be visible to them.
+  await request(app).post("/end-round").send({ gameId, adminToken });
+
+  const state = await request(app).get("/game-state").query({ gameId, playerId: idle });
+  assert.equal(state.status, 200);
+  assert.equal(state.body.player.history.length, 1);
+
+  const result = state.body.player.lastRoundResult;
+  assert.equal(result.orderQuantity, 0);
+  assert.equal(result.realizedDemand, 100);
+  assert.equal(result.profit, 0);
+});
+
 test("extreme over-ordering produces a negative cumulative profit", async () => {
   const app = createApp({ adminKey: ADMIN_KEY });
   const { gameId, adminToken, alice } = await setupDeterministicGame(app);
