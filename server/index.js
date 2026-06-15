@@ -231,8 +231,9 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
         return res.status(400).json({ error: "mean and stdDev must be numbers" });
       }
 
-      if (parsedMean <= 0) {
-        return res.status(400).json({ error: "mean must be greater than 0" });
+      // Mean is rounded to a whole number, so anything below 0.5 collapses to 0.
+      if (parsedMean < 0.5) {
+        return res.status(400).json({ error: "mean must be at least 0.5" });
       }
 
       if (parsedStdDev < 0) {

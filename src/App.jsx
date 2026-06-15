@@ -352,8 +352,9 @@ function App() {
           return;
         }
 
-        if (parsedMean <= 0) {
-          setErrorMessage("Mean must be greater than 0.");
+        // Mean is rounded to a whole number, so anything below 0.5 collapses to 0.
+        if (parsedMean < 0.5) {
+          setErrorMessage("Mean must be at least 0.5.");
           return;
         }
 
