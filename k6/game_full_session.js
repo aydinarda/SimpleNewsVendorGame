@@ -1,18 +1,23 @@
 /**
  * k6 Full Session Load Test — SimpleNewsVendorGame
  *
- * Realistic, heavy scenario:
+ * Realistic, classroom-paced scenario:
  *   - 1 admin + 100 players in a single game, 12 rounds (hands) played end to end.
- *   - The admin scenario (1 VU) drives the rounds sequentially: each round it sets a
- *     DIFFERENT distribution, starts the round, gives players a window, then ends it.
- *   - The players scenario (100 VUs) continuously polls /game-state and submits a
- *     random order while a round is active. Occasional re-submits, random leaderboard/
- *     health requests, and jittered poll cadence model real user noise.
+ *   - The admin (1 VU) drives the rounds sequentially: each round sets a DIFFERENT
+ *     distribution, starts the round, gives players a ~1 minute window to decide and
+ *     submit, then ends it. A short review gap follows before the next round.
+ *   - The players (100 VUs) behave like real users: they refresh /game-state at a
+ *     RELAXED cadence (the real client is WebSocket-push driven, not a 1s poller),
+ *     submit one order while a round is active, and occasionally browse the leaderboard.
+ *     ~25% are "active" users who keep hitting endpoints throughout the waits.
  *   - The admin logs each round's realized demand so distribution behavior is visible.
  *
- * Tens of thousands of requests in total. This is the heaviest scenario.
+ * The long windows let you JOIN the same game in a browser and watch for latency while
+ * the load runs. Point both at the same backend:
+ *   k6:      k6 run --env BASE_URL=http://localhost:4000 --env ADMIN_KEY=admin123 k6/game_full_session.js
+ *   browser: http://localhost:5173  (joins the active game the load test created)
  *
- * Run: k6 run --env BASE_URL=... --env ADMIN_KEY=... k6/game_full_session.js
+ * Tune the pacing:  --env ROUND_WINDOW=60  --env REVIEW_GAP=8
  */
 
 import http from "k6/http";
@@ -25,8 +30,10 @@ const HDR = { headers: { "Content-Type": "application/json" } };
 
 const N_PLAYERS = 100;
 const N_ROUNDS = 12;
-const PLAY_WINDOW = Number(__ENV.PLAY_WINDOW || 6); // seconds: the players' submit window per round
-const DURATION = __ENV.DURATION || "3m"; // players scenario duration; must cover the whole game
+const ROUND_WINDOW = Number(__ENV.ROUND_WINDOW || 60); // seconds a round stays active (~1 min to decide + submit)
+const REVIEW_GAP = Number(__ENV.REVIEW_GAP || 8); // seconds between rounds (players review results/leaderboard)
+const SESSION_SECONDS = N_ROUNDS * (ROUND_WINDOW + REVIEW_GAP) + 60; // whole game + buffer
+const DURATION = __ENV.DURATION || `${SESSION_SECONDS}s`; // players scenario; must cover the whole game
 
 // 400/409/429 are expected responses (re-submit, rate-limit); keep them out of http_req_failed.
 http.setResponseCallback(http.expectedStatuses(200, 400, 409, 429));
@@ -63,12 +70,12 @@ export const options = {
       executor: "shared-iterations",
       vus: 1,
       iterations: 1,
-      maxDuration: "5m",
+      maxDuration: `${SESSION_SECONDS + 60}s`,
       startTime: "2s", // small head start so players are already polling
       exec: "driveGame",
       tags: { role: "admin" }
     },
-    // 100 players continuously poll + submit.
+    // 100 players refresh + submit at a realistic, relaxed cadence.
     players: {
       executor: "constant-vus",
       vus: N_PLAYERS,
@@ -132,7 +139,10 @@ export function setup() {
   }
   if (players.length < N_PLAYERS) throw new Error(`setup: only ${players.length}/${N_PLAYERS} players joined`);
 
-  console.log(`setup: game ${admin.gameId.slice(0, 8)} ready, ${players.length} players, ${N_ROUNDS} rounds`);
+  console.log(
+    `setup: game ${admin.gameId.slice(0, 8)} ready, ${players.length} players, ${N_ROUNDS} rounds, ` +
+      `${ROUND_WINDOW}s window + ${REVIEW_GAP}s gap (~${Math.round(SESSION_SECONDS / 60)}m total)`
+  );
   return { gameId: admin.gameId, adminToken: admin.adminToken, players };
 }
 
@@ -154,11 +164,15 @@ export function driveGame(data) {
     const sr = post("/start-round", { gameId, adminToken });
     if (j(sr).roundPhase !== "active") gameErrors.add(1);
 
-    sleep(PLAY_WINDOW); // players submit during this window
+    // ~1 minute window: players think, submit, and browse while traffic keeps flowing.
+    sleep(ROUND_WINDOW);
 
     const er = j(post("/end-round", { gameId, adminToken }));
     roundsDriven.add(1);
     console.log(`Round ${r + 1}/${N_ROUNDS} | ${describe(dist)} | demand=${er.realizedDemand} | finished=${er.finished}`);
+
+    // Between rounds: a short review gap before the next round starts.
+    if (r < N_ROUNDS - 1) sleep(REVIEW_GAP);
   }
 
   const lb = j(http.get(`${BASE}/leaderboard?gameId=${gameId}`, HDR));
@@ -166,10 +180,14 @@ export function driveGame(data) {
   console.log(`Final leaderboard: ${(lb.leaderboard || []).length} players | leader=${top?.nickname} $${top?.cumulativeProfit}`);
 }
 
-// ── Player: poll continuously + submit while active + random noise ──────────
+// ── Player: realistic, relaxed refresh + submit while active + light noise ───
 export function playerLoop(data) {
   const player = data.players[(__VU - 1) % data.players.length];
   const stateUrl = `${BASE}/game-state?gameId=${data.gameId}&playerId=${player.playerId}`;
+
+  // ~25% of players stay "active": they keep refreshing/browsing throughout the
+  // 1-minute waits. The rest submit, then mostly wait (like a real classroom).
+  const isActiveUser = __VU % 4 === 0;
 
   const t0 = Date.now();
   const gs = j(http.get(stateUrl, HDR));
@@ -178,11 +196,12 @@ export function playerLoop(data) {
   check(gs, { "poll ok": (x) => typeof x.roundPhase === "string" || x.finished === true });
 
   if (gs.finished) {
-    sleep(3); // game over -> cheap idle
+    sleep(5 + Math.random() * 5); // game over -> cheap idle
     return;
   }
 
   if (gs.roundPhase === "active" && gs.player && !gs.player.submittedThisRound) {
+    sleep(Math.random() * 3); // brief human reaction delay before ordering
     const qty = chooseOrder(gs.distribution);
 
     const s0 = Date.now();
@@ -193,8 +212,8 @@ export function playerLoop(data) {
     else if (r.status === 429) submitRateLimited.add(1);
     else if (r.status >= 500) gameErrors.add(1);
 
-    // ~12%: try to re-submit (the server should reject with 400).
-    if (Math.random() < 0.12) {
+    // ~10%: accidental double-submit (the server should reject with 400).
+    if (Math.random() < 0.1) {
       const dup = post("/submit-order", { gameId: data.gameId, playerId: player.playerId, orderQuantity: qty });
       if (dup.status === 400) submitDuplicateRejected.add(1);
       else if (dup.status === 429) submitRateLimited.add(1);
@@ -202,12 +221,16 @@ export function playerLoop(data) {
     }
   }
 
-  // Random extra activity (realistic noise).
+  // Light extra activity — active users browse the leaderboard often, others rarely.
   const roll = Math.random();
-  if (roll < 0.15) http.get(`${BASE}/leaderboard?gameId=${data.gameId}`, HDR);
-  else if (roll < 0.2) http.get(`${BASE}/health`, HDR);
+  if (isActiveUser && roll < 0.5) http.get(`${BASE}/leaderboard?gameId=${data.gameId}`, HDR);
+  else if (roll < 0.08) http.get(`${BASE}/leaderboard?gameId=${data.gameId}`, HDR);
+  else if (roll < 0.1) http.get(`${BASE}/health`, HDR);
 
-  sleep(0.4 + Math.random() * 1.6); // 0.4-2.0s jittered poll
+  // Relaxed cadence: the real client is WebSocket-push driven (150s HTTP fallback),
+  // so model occasional human-driven refreshes instead of 1s polling.
+  if (isActiveUser) sleep(3 + Math.random() * 5); // active: refresh every 3-8s
+  else sleep(12 + Math.random() * 13); // lazy: refresh every 12-25s
 }
 
 // ── Teardown: close a round if the driver left one open (safety) ─────────────

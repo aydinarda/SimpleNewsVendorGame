@@ -11,22 +11,28 @@ on:
         description: "Admin key"
         required: false
         default: "admin123"
-      play_window:
-        description: "Seconds players get to submit per round"
+      round_window:
+        description: "Seconds a round stays active (~1 min for players to decide + submit)"
         required: false
-        default: "6"
+        default: "60"
+      review_gap:
+        description: "Seconds between rounds (players review results)"
+        required: false
+        default: "8"
 
 env:
-  BASE_URL:    ${{ inputs.server_url || secrets.RENDER_URL || 'https://simplenewsvendorgame.onrender.com' }}
-  ADMIN_KEY:   ${{ inputs.admin_key  || secrets.ADMIN_KEY  || 'admin123' }}
-  PLAY_WINDOW: ${{ inputs.play_window || '6' }}
-  DURATION:    "4m"
+  BASE_URL:     ${{ inputs.server_url || secrets.RENDER_URL || 'https://simplenewsvendorgame.onrender.com' }}
+  ADMIN_KEY:    ${{ inputs.admin_key   || secrets.ADMIN_KEY  || 'admin123' }}
+  ROUND_WINDOW: ${{ inputs.round_window || '60' }}
+  REVIEW_GAP:   ${{ inputs.review_gap   || '8' }}
+  # DURATION is intentionally unset: the script auto-computes the full session length
+  # from ROUND_WINDOW + REVIEW_GAP so players cover the whole ~14.5 min game.
 
 jobs:
   k6:
     name: "100 players x 12 rounds — full game session"
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - uses: actions/checkout@v4
@@ -66,8 +72,8 @@ jobs:
           k6 run \
             --env BASE_URL="$BASE_URL" \
             --env ADMIN_KEY="$ADMIN_KEY" \
-            --env PLAY_WINDOW="$PLAY_WINDOW" \
-            --env DURATION="$DURATION" \
+            --env ROUND_WINDOW="$ROUND_WINDOW" \
+            --env REVIEW_GAP="$REVIEW_GAP" \
             --summary-export=k6-summary.json \
             --out json=k6-results.ndjson \
             k6/game_full_session.js
