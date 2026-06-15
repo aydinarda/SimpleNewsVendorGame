@@ -282,12 +282,6 @@ function App() {
     }
   };
 
-  const handleNextRound = () => {
-    setIsRoundSubmitted(false);
-    setLastRoundResult(null);
-    setStatusMessage("");
-  };
-
   const handleStartRound = async () => {
     try {
       setErrorMessage("");
@@ -522,6 +516,7 @@ function App() {
             setRoundPhase(message.payload.roundPhase || "active");
             setCurrentRound(message.payload.currentRound || null);
             setIsRoundSubmitted(false);
+            setStatusMessage("");
             return;
           }
 
@@ -839,12 +834,6 @@ function App() {
 
       {!isAdmin && statusMessage ? <p className="status-line">{statusMessage}</p> : null}
       {!isAdmin && errorMessage ? <p className="error-text">{errorMessage}</p> : null}
-
-      {lastRoundResult && roundPhase === "pending" ? (
-        <button type="button" className="next-round-button" onClick={handleNextRound}>
-          Continue
-        </button>
-      ) : null}
 
           <section className="card sticky-score">
             <p>Current cumulative profit</p>
