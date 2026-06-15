@@ -35,11 +35,8 @@ function App() {
   const [gameId, setGameId] = useState("");
   const [playerId, setPlayerId] = useState("");
   const [totalRounds, setTotalRounds] = useState(5);
-  const [totalTurs, setTotalTurs] = useState(1);
-  const [currentTurNumber, setCurrentTurNumber] = useState(1);
   const [turHistory, setTurHistory] = useState([]);
   const [handsPerTurInput, setHandsPerTurInput] = useState("5");
-  const [totalTursInput, setTotalTursInput] = useState("1");
   const [currentRound, setCurrentRound] = useState(null);
   const [roundPhase, setRoundPhase] = useState("pending");
   const [distributionType, setDistributionType] = useState("uniform");
@@ -110,8 +107,6 @@ function App() {
             setSalvagePrice(String(data.prices?.salvagePrice ?? 5));
             setHasUnsavedPriceChanges(false);
             setTotalRounds(data.totalRounds || 5);
-            setTotalTurs(data.totalTurs || 1);
-            setCurrentTurNumber((data.currentTurIndex || 0) + 1);
             if (data.roundHistory) {
               setAdminRoundHistory(data.roundHistory);
             }
@@ -145,8 +140,6 @@ function App() {
     setCurrentRound(data.currentRound);
     setRoundPhase(data.roundPhase || "pending");
     setTotalRounds(data.totalRounds || 5);
-    setTotalTurs(data.totalTurs || 1);
-    setCurrentTurNumber((data.currentTurIndex || 0) + 1);
 
     if (data.distribution) {
       const shouldPreserveAdminDraft =
@@ -219,8 +212,7 @@ function App() {
       const data = await startGame({
         nickname: nicknameInput.trim(),
         adminKey: adminMode ? adminKey.trim() : undefined,
-        handsPerTur: adminMode ? Number(handsPerTurInput) : undefined,
-        totalTurs: adminMode ? Number(totalTursInput) : undefined
+        handsPerTur: adminMode ? Number(handsPerTurInput) : undefined
       });
 
       setNickname(data.nickname);
@@ -241,8 +233,6 @@ function App() {
       setSalvagePrice(String(data.prices?.salvagePrice ?? 5));
       setHasUnsavedPriceChanges(false);
       setTotalRounds(data.totalRounds);
-      setTotalTurs(data.totalTurs || 1);
-      setCurrentTurNumber((data.currentTurIndex || 0) + 1);
       setTurHistory([]);
       setHistory([]);
       setLastRoundResult(null);
@@ -313,9 +303,6 @@ function App() {
       const data = await endRound({ gameId, adminToken });
       setCurrentRound(data.nextRound);
       setRoundPhase(data.roundPhase);
-      if (data.currentTurIndex !== undefined) {
-        setCurrentTurNumber(data.currentTurNumber || 1);
-      }
       if (data.distribution) {
         setDistributionType(data.distribution.type ?? "uniform");
         setDistributionMin(String(data.distribution.min));
@@ -333,9 +320,7 @@ function App() {
       setLeaderboardRows(data.leaderboard || []);
       setStatusMessage(
         data.finished
-          ? "Game complete. All turns finished."
-          : data.turComplete
-          ? `Turn ${data.currentTurNumber - 1} complete. Starting Turn ${data.currentTurNumber}.`
+          ? "Game complete."
           : `Hand ended. Next hand is ${data.nextRound?.id}. Realized demand was ${data.realizedDemand}.`
       );
       setIsRoundSubmitted(false);
@@ -611,7 +596,7 @@ function App() {
                   onChange={(event) => setAdminKey(event.target.value)}
                   placeholder="admin key"
                 />
-                <label htmlFor="handsPerTur">Hands per turn</label>
+                <label htmlFor="handsPerTur">Number of rounds</label>
                 <input
                   id="handsPerTur"
                   type="number"
@@ -619,15 +604,6 @@ function App() {
                   max="20"
                   value={handsPerTurInput}
                   onChange={(event) => setHandsPerTurInput(event.target.value)}
-                />
-                <label htmlFor="totalTurs">Number of turns</label>
-                <input
-                  id="totalTurs"
-                  type="number"
-                  min="1"
-                  max="10"
-                  value={totalTursInput}
-                  onChange={(event) => setTotalTursInput(event.target.value)}
                 />
               </>
             ) : null}
@@ -663,9 +639,6 @@ function App() {
         <p className="muted">
           Decide order quantities and submit. Server computes demand and profit.
         </p>
-        {totalTurs > 1 ? (
-          <p className="muted">Turn {currentTurNumber} / {totalTurs}</p>
-        ) : null}
       </header>
 
       <div className={`game-layout ${showLeaderboard ? "with-leaderboard" : ""}`}>

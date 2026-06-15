@@ -122,7 +122,7 @@ export function setup() {
   }
   if (!alive) throw new Error("setup: backend /health did not respond");
 
-  const admin = j(post("/start-game", { nickname: "admin_load", adminKey: ADMIN_KEY, handsPerTur: N_ROUNDS, totalTurs: 1 }));
+  const admin = j(post("/start-game", { nickname: "admin_load", adminKey: ADMIN_KEY, handsPerTur: N_ROUNDS }));
   if (!admin.gameId || !admin.adminToken) throw new Error("setup: could not create game");
 
   const players = [];

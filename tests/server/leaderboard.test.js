@@ -10,7 +10,7 @@ const ADMIN_KEY = "admin123";
 async function setupDeterministicGame(app, { demand = 100 } = {}) {
   const admin = await request(app)
     .post("/start-game")
-    .send({ nickname: "Alice", adminKey: ADMIN_KEY, handsPerTur: 1, totalTurs: 1 });
+    .send({ nickname: "Alice", adminKey: ADMIN_KEY, handsPerTur: 1 });
   const { gameId, adminToken, playerId } = admin.body;
 
   await request(app)
@@ -101,7 +101,7 @@ test("cumulative profit accumulates across multiple hands", async () => {
   // Two hands in one turn, demand pinned to 100 each.
   const admin = await request(app)
     .post("/start-game")
-    .send({ nickname: "Alice", adminKey: ADMIN_KEY, handsPerTur: 2, totalTurs: 1 });
+    .send({ nickname: "Alice", adminKey: ADMIN_KEY, handsPerTur: 2 });
   const { gameId, adminToken, playerId: alice } = admin.body;
   await request(app).post("/set-distribution").send({ gameId, adminToken, type: "normal", mean: 100, stdDev: 0 });
 

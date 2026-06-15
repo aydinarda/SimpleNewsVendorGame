@@ -120,7 +120,7 @@ test("submit-order is rate limited after 10 attempts per window", async () => {
 // ── /game-state field visibility ─────────────────────────────────────────────
 test("game-state exposes submittedThisRound and finished transitions", async () => {
   const app = createApp({ adminKey: ADMIN_KEY });
-  const { gameId, adminToken, playerId } = await createGame(app, { handsPerTur: 1, totalTurs: 1 });
+  const { gameId, adminToken, playerId } = await createGame(app, { handsPerTur: 1 });
 
   await request(app).post("/start-round").send({ gameId, adminToken });
 
@@ -142,7 +142,7 @@ test("game-state exposes submittedThisRound and finished transitions", async () 
 
 test("game-state hides roundHistory from non-admins but shows it to admins", async () => {
   const app = createApp({ adminKey: ADMIN_KEY });
-  const { gameId, adminToken, playerId } = await createGame(app, { handsPerTur: 2, totalTurs: 1 });
+  const { gameId, adminToken, playerId } = await createGame(app, { handsPerTur: 2 });
 
   await request(app).post("/start-round").send({ gameId, adminToken });
   await request(app).post("/end-round").send({ gameId, adminToken });

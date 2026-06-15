@@ -100,7 +100,8 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       }
 
       const handsPerTur = Math.max(1, Math.min(20, Math.round(Number(req.body?.handsPerTur) || 5)));
-      const totalTurs = Math.max(1, Math.min(10, Math.round(Number(req.body?.totalTurs) || 1)));
+      // Multi-turn support was removed from the UI; every game is a single turn.
+      const totalTurs = 1;
 
       activeGame = {
         id: randomUUID(),

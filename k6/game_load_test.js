@@ -120,12 +120,11 @@ export function setup() {
   }
   if (!alive) throw new Error('setup: /health yanıt vermedi');
 
-  // Admin oyunu oluşturur (1 hand, 1 turn → sade test ortamı)
+  // Admin oyunu oluşturur (1 hand → sade test ortamı)
   const adminR = post('/start-game', {
     nickname:    'admin_k6',
     adminKey:    ADMIN_KEY,
     handsPerTur: 1,
-    totalTurs:   1,
   });
   const adminD = j(adminR);
   if (!adminD.gameId || !adminD.adminToken) {
