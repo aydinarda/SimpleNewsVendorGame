@@ -205,6 +205,12 @@ function App() {
     setErrorMessage("");
 
     if (!nicknameInput.trim()) {
+      setErrorMessage("Please enter a nickname to continue.");
+      return;
+    }
+
+    if (adminMode && !adminKey.trim()) {
+      setErrorMessage("Admin key is required to create a game.");
       return;
     }
 
@@ -774,6 +780,9 @@ function App() {
             </button>
           </div>
 
+          {errorMessage ? <p className="error-text">{errorMessage}</p> : null}
+          {statusMessage ? <p className="status-line">{statusMessage}</p> : null}
+
           {adminRoundHistory.length > 0 ? (
             <div className="admin-demand-history">
               <h4>Realized Demands</h4>
@@ -827,8 +836,8 @@ function App() {
 
       {roundPhase === "pending" ? <RoundResult result={lastRoundResult} /> : null}
 
-      {statusMessage ? <p className="status-line">{statusMessage}</p> : null}
-      {errorMessage ? <p className="error-text">{errorMessage}</p> : null}
+      {!isAdmin && statusMessage ? <p className="status-line">{statusMessage}</p> : null}
+      {!isAdmin && errorMessage ? <p className="error-text">{errorMessage}</p> : null}
 
       {lastRoundResult && roundPhase === "pending" ? (
         <button type="button" className="next-round-button" onClick={handleNextRound}>

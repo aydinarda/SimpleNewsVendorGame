@@ -101,6 +101,14 @@ describe("App", () => {
     expect(screen.getByLabelText(/nickname/i)).toBeInTheDocument();
   });
 
+  it("shows a clear error and does not call the API when no nickname is entered", async () => {
+    render(<App />);
+    await userEvent.click(screen.getByRole("button", { name: /start game/i }));
+
+    expect(await screen.findByText(/please enter a nickname/i)).toBeInTheDocument();
+    expect(api.startGame).not.toHaveBeenCalled();
+  });
+
   it("joins a game and renders the player view", async () => {
     api.startGame.mockResolvedValue({
       gameId: "g1",
