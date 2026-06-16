@@ -78,3 +78,24 @@ export function setPrices(params) {
     body: JSON.stringify(params)
   });
 }
+
+export function oneMoreHand({ gameId, adminToken }) {
+  return request("/one-more-hand", {
+    method: "POST",
+    body: JSON.stringify({ gameId, adminToken })
+  });
+}
+
+export function endGame({ gameId, adminToken }) {
+  return request("/end-game", {
+    method: "POST",
+    body: JSON.stringify({ gameId, adminToken })
+  });
+}
+
+export function restartGame({ gameId, adminToken, playerId }) {
+  return request("/restart-game", {
+    method: "POST",
+    body: JSON.stringify({ gameId, adminToken, playerId })
+  });
+}

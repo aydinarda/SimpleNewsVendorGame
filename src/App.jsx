@@ -6,9 +6,12 @@ import Leaderboard from "./components/Leaderboard";
 import ProgressBar from "./components/ProgressBar";
 import EmojiRain from "./components/EmojiRain";
 import {
+  endGame,
   endRound,
   fetchGameState,
   fetchLeaderboard,
+  oneMoreHand,
+  restartGame,
   setDistribution,
   setPrices,
   startGame,
@@ -19,6 +22,7 @@ import {
   saveGameSession,
   loadGameSession,
   clearGameSession,
+  clearUrlSession,
   updateUrlWithSession,
   getSessionFromUrl
 } from "./utils/sessionStorage";
@@ -57,6 +61,7 @@ function App() {
   const [adminRoundHistory, setAdminRoundHistory] = useState([]);
   const [statusMessage, setStatusMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [showRestartConfirm, setShowRestartConfirm] = useState(false);
   const [emojiBurstKey, setEmojiBurstKey] = useState(0);
   const [emojiRaining, setEmojiRaining] = useState(false);
   const prevRoundRef = useRef(null);
@@ -330,6 +335,112 @@ function App() {
     }
   };
 
+  // Reset all session-scoped state back to the nickname/auth screen.
+  const resetToAuth = useCallback(() => {
+    clearGameSession();
+    clearUrlSession();
+    setNickname("");
+    setNicknameInput("");
+    setGameId("");
+    setPlayerId("");
+    setIsAdmin(false);
+    setAdminToken("");
+    setAdminMode(false);
+    setAdminKey("");
+    setCurrentRound(null);
+    setRoundPhase("pending");
+    setHistory([]);
+    setTurHistory([]);
+    setLeaderboardRows([]);
+    setShowLeaderboard(false);
+    setLastRoundResult(null);
+    setIsRoundSubmitted(false);
+    setStatusMessage("");
+    setErrorMessage("");
+  }, []);
+
+  // "One more turn?" — append a single extra hand and resume the same game.
+  // The final screen reappears after it ends, so this loops recursively.
+  const handleOneMoreHand = async () => {
+    try {
+      setErrorMessage("");
+      const data = await oneMoreHand({ gameId, adminToken });
+      setCurrentRound(data.currentRound);
+      setRoundPhase(data.roundPhase);
+      setTotalRounds(data.totalRounds || totalRounds);
+      setLeaderboardRows(data.leaderboard || []);
+      setLastRoundResult(null);
+      setIsRoundSubmitted(false);
+      setStatusMessage("Extra hand added. Start the round when ready.");
+      await syncGameState();
+    } catch (error) {
+      setErrorMessage(error.message);
+    }
+  };
+
+  // "End Game" — delete the game instance and return everyone to the start screen.
+  const handleEndGame = async () => {
+    try {
+      setErrorMessage("");
+      await endGame({ gameId, adminToken });
+      resetToAuth();
+    } catch (error) {
+      setErrorMessage(error.message);
+    }
+  };
+
+  // Move this client onto the restarted game id and wipe local progress back to
+  // the very beginning. Player id and nickname are kept; the admin keeps its
+  // (reused) adminToken, so newAdminToken is only passed for the calling admin.
+  const applyRestart = useCallback(
+    ({ newGameId, newAdminToken, currentRound: nextRound, roundPhase: nextPhase }) => {
+      setGameId(newGameId);
+      if (newAdminToken !== undefined) {
+        setAdminToken(newAdminToken);
+      }
+      setCurrentRound(nextRound ?? null);
+      setRoundPhase(nextPhase ?? "pending");
+      setHistory([]);
+      setTurHistory([]);
+      setLeaderboardRows([]);
+      setLastRoundResult(null);
+      setIsRoundSubmitted(false);
+      setHasUnsavedDistributionChanges(false);
+      setHasUnsavedPriceChanges(false);
+      setShowRestartConfirm(false);
+      setStatusMessage("Game restarted — back to the beginning.");
+      setErrorMessage("");
+
+      saveGameSession({
+        gameId: newGameId,
+        playerId,
+        nickname,
+        isAdmin,
+        adminToken: newAdminToken ?? adminToken,
+        roundPhase: nextPhase ?? "pending"
+      });
+      updateUrlWithSession(newGameId, playerId);
+    },
+    [playerId, nickname, isAdmin, adminToken]
+  );
+
+  // "Restart Game" (admin) — fresh game id, same roster, all histories reset.
+  const handleRestartGame = async () => {
+    try {
+      setErrorMessage("");
+      const data = await restartGame({ gameId, adminToken, playerId });
+      applyRestart({
+        newGameId: data.gameId,
+        newAdminToken: data.adminToken,
+        currentRound: data.currentRound,
+        roundPhase: data.roundPhase
+      });
+    } catch (error) {
+      setShowRestartConfirm(false);
+      setErrorMessage(error.message);
+    }
+  };
+
   const handleParametersSave = async () => {
     try {
       setErrorMessage("");
@@ -512,6 +623,23 @@ function App() {
             return;
           }
 
+          if (eventType === "game_deleted") {
+            // Admin ended the game instance — send everyone back to the start.
+            resetToAuth();
+            return;
+          }
+
+          if (eventType === "game_restarted") {
+            // Admin restarted: move to the new game id and reset to the beginning.
+            // adminToken is kept as-is (it was reused, so it stays valid).
+            applyRestart({
+              newGameId: message.payload.newGameId,
+              currentRound: message.payload.currentRound,
+              roundPhase: message.payload.roundPhase
+            });
+            return;
+          }
+
           if (eventType === "round_started") {
             setRoundPhase(message.payload.roundPhase || "active");
             setCurrentRound(message.payload.currentRound || null);
@@ -532,7 +660,7 @@ function App() {
     return () => {
       ws.close();
     };
-  }, [WS_BASE_URL, gameId, playerId, syncGameState]);
+  }, [WS_BASE_URL, gameId, playerId, syncGameState, resetToAuth, applyRestart]);
 
   // Trigger a falling-emoji burst whenever the hand changes (client-only, no network).
   useEffect(() => {
@@ -628,6 +756,25 @@ function App() {
         </header>
 
         <Leaderboard rows={leaderboardRows} title="Final Leaderboard" />
+
+        {isAdmin ? (
+          <section className="card final-actions">
+            <div className="admin-buttons">
+              <button type="button" onClick={handleOneMoreHand}>
+                One more turn?
+              </button>
+              <button type="button" className="danger" onClick={handleEndGame}>
+                End Game
+              </button>
+            </div>
+            {statusMessage ? <p className="status-line">{statusMessage}</p> : null}
+            {errorMessage ? <p className="error-text">{errorMessage}</p> : null}
+          </section>
+        ) : (
+          <p className="muted">
+            Waiting for the admin to start another hand or end the game…
+          </p>
+        )}
       </main>
     );
   }
@@ -774,6 +921,32 @@ function App() {
             >
               End Round
             </button>
+          </div>
+
+          <div className="restart-control">
+            {showRestartConfirm ? (
+              <div className="restart-confirm">
+                <p className="status-line">
+                  Are you sure you want to restart? 
+                </p>
+                <div className="admin-buttons">
+                  <button type="button" className="danger" onClick={handleRestartGame}>
+                    Yes, restart
+                  </button>
+                  <button type="button" onClick={() => setShowRestartConfirm(false)}>
+                    No
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="danger restart-button"
+                onClick={() => setShowRestartConfirm(true)}
+              >
+                Restart Game
+              </button>
+            )}
           </div>
 
           {errorMessage ? <p className="error-text">{errorMessage}</p> : null}

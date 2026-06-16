@@ -293,6 +293,36 @@ button:disabled {
   gap: 10px;
 }
 
+.final-actions {
+  margin-top: 16px;
+}
+
+button.danger {
+  background: #c0392b;
+}
+
+button.danger:hover {
+  background: #a93226;
+}
+
+.restart-control {
+  margin-top: 10px;
+}
+
+.restart-control .restart-button {
+  width: 100%;
+}
+
+.restart-confirm {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.restart-confirm .admin-buttons {
+  margin-top: 8px;
+}
+
 .leaderboard-table {
   width: 100%;
   border-collapse: collapse;

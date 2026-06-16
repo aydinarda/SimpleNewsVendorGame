@@ -112,6 +112,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
         currentTurIndex: 0,
         totalTurs,
         handsPerTur,
+        initialHandsPerTur: handsPerTur,
         rounds: Array.from({ length: handsPerTur }, (_, i) => ({ id: i + 1, title: `Hand ${i + 1}` })),
         roundPhase: "pending",
         distribution: { type: "uniform", min: 80, max: 120 },
@@ -587,6 +588,195 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       prices: activeGame.prices,
       leaderboard: activeGame.leaderboard,
       realizedDemand
+    });
+  });
+
+  app.post("/one-more-hand", (req, res) => {
+    const { gameId, adminToken } = req.body || {};
+
+    if (!activeGame || gameId !== activeGame.id) {
+      return res.status(400).json({ error: "invalid or inactive game id" });
+    }
+
+    if (!adminToken || adminToken !== activeGame.adminToken) {
+      return res.status(403).json({ error: "admin authorization required" });
+    }
+
+    // Only valid once the game has finished (no playable round remains).
+    if (getRoundForGame(activeGame) !== null) {
+      return res.status(400).json({ error: "game is still in progress" });
+    }
+
+    // Re-open the just-completed turn so the extra hand continues the same run:
+    // undo the finalize step (turHistory snapshot + score reset) that the last
+    // end-round performed, restoring each player's running profit and history.
+    for (const player of activeGame.players.values()) {
+      const lastTur = player.turHistory.pop();
+      if (!lastTur) {
+        continue;
+      }
+      player.history = lastTur.rounds;
+      player.cumulativeProfit = lastTur.cumulativeProfit;
+      player.overallProfit -= lastTur.cumulativeProfit;
+    }
+    activeGame.currentTurIndex = Math.max(0, activeGame.currentTurIndex - 1);
+
+    // Append one more hand and make it the next round to play.
+    const newHandId = activeGame.rounds.length + 1;
+    activeGame.rounds.push({ id: newHandId, title: `Hand ${newHandId}` });
+    activeGame.handsPerTur = activeGame.rounds.length;
+    activeGame.currentRoundIndex = newHandId - 1;
+    activeGame.roundPhase = "pending";
+    activeGame.activeRoundDemand = null;
+    activeGame.activeRoundOrders = new Map();
+    activeGame.leaderboard = calculateLeaderboard(activeGame.players);
+
+    emitGameEvent(activeGame, "game_extended");
+
+    return res.json({
+      gameId: activeGame.id,
+      roundPhase: activeGame.roundPhase,
+      currentRound: getRoundForGame(activeGame),
+      totalRounds: activeGame.handsPerTur,
+      totalTurs: activeGame.totalTurs,
+      currentTurIndex: activeGame.currentTurIndex,
+      distribution: activeGame.distribution,
+      prices: activeGame.prices,
+      leaderboard: activeGame.leaderboard
+    });
+  });
+
+  app.post("/end-game", (req, res) => {
+    const { gameId, adminToken } = req.body || {};
+
+    if (!activeGame || gameId !== activeGame.id) {
+      return res.status(400).json({ error: "invalid or inactive game id" });
+    }
+
+    if (!adminToken || adminToken !== activeGame.adminToken) {
+      return res.status(403).json({ error: "admin authorization required" });
+    }
+
+    // Notify every subscribed client before the instance is dropped.
+    emitGameEvent(activeGame, "game_deleted");
+    activeGame = null;
+
+    return res.json({ ok: true });
+  });
+
+  app.post("/restart-game", (req, res) => {
+    const { gameId, adminToken, playerId } = req.body || {};
+
+    if (!activeGame || gameId !== activeGame.id) {
+      return res.status(400).json({ error: "invalid or inactive game id" });
+    }
+
+    if (!adminToken || adminToken !== activeGame.adminToken) {
+      return res.status(403).json({ error: "admin authorization required" });
+    }
+
+    const oldGameId = activeGame.id;
+    const roster = Array.from(activeGame.players.values()).map((p) => ({
+      id: p.id,
+      nickname: p.nickname
+    }));
+    // Restart returns to the originally configured number of hands, even if the
+    // game was extended via "one more turn".
+    const handsPerTur = activeGame.initialHandsPerTur ?? activeGame.handsPerTur;
+    const createdAt = new Date().toISOString();
+    const newGameId = randomUUID();
+
+    // Rebuild every player fresh, keeping their id + nickname so each client only
+    // has to swap the game id. All progress is wiped back to the very beginning.
+    const players = new Map();
+    for (const member of roster) {
+      players.set(member.id, {
+        id: member.id,
+        nickname: member.nickname,
+        currentRoundIndex: 0,
+        cumulativeProfit: 0,
+        overallProfit: 0,
+        history: [],
+        turHistory: []
+      });
+    }
+
+    // A brand-new game id means DB round writes start clean instead of colliding
+    // with the previous run's (game_id, tur_no, round_id) rows. The adminToken is
+    // reused so the admin keeps control without broadcasting a new secret.
+    const restarted = {
+      id: newGameId,
+      adminToken: activeGame.adminToken,
+      players,
+      createdAt,
+      currentRoundIndex: 0,
+      currentTurIndex: 0,
+      totalTurs: activeGame.totalTurs,
+      handsPerTur,
+      initialHandsPerTur: handsPerTur,
+      rounds: Array.from({ length: handsPerTur }, (_, i) => ({ id: i + 1, title: `Hand ${i + 1}` })),
+      roundPhase: "pending",
+      distribution: { ...activeGame.distribution },
+      prices: { ...activeGame.prices },
+      distributionHistory: [],
+      roundHistory: [],
+      leaderboard: [],
+      activeRoundDemand: null,
+      activeRoundOrders: new Map()
+    };
+
+    restarted.distributionHistory.push({
+      roundIndex: 0,
+      distribution: { ...restarted.distribution },
+      updatedAt: createdAt
+    });
+    restarted.leaderboard = calculateLeaderboard(restarted.players);
+
+    activeGame = restarted;
+
+    // Register the new game id + roster so later round/order writes have a home.
+    void recordGameCreated({
+      gameId: newGameId,
+      adminPlayerId: playerId || roster[0]?.id || null,
+      createdAt
+    });
+    for (const member of roster) {
+      void recordPlayerJoined({
+        gameId: newGameId,
+        playerId: member.id,
+        nickname: member.nickname,
+        isAdmin: member.id === playerId,
+        joinedAt: createdAt
+      });
+    }
+
+    // Route the event to the OLD game id so currently-subscribed clients receive
+    // it, handing them the new id to move to. The new adminToken is intentionally
+    // omitted from the broadcast; only the calling admin gets it (and it is the
+    // same value anyway).
+    if (typeof onGameEvent === "function") {
+      onGameEvent({
+        type: "game_restarted",
+        gameId: oldGameId,
+        newGameId,
+        roundPhase: restarted.roundPhase,
+        currentRound: getRoundForGame(restarted),
+        distribution: restarted.distribution,
+        timestamp: createdAt
+      });
+    }
+
+    return res.json({
+      gameId: newGameId,
+      adminToken: restarted.adminToken,
+      roundPhase: restarted.roundPhase,
+      currentRound: getRoundForGame(restarted),
+      distribution: restarted.distribution,
+      prices: restarted.prices,
+      totalRounds: restarted.handsPerTur,
+      totalTurs: restarted.totalTurs,
+      currentTurIndex: restarted.currentTurIndex,
+      leaderboard: restarted.leaderboard
     });
   });
 
