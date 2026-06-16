@@ -99,7 +99,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
         return res.status(403).json({ error: "invalid admin key" });
       }
 
-      const handsPerTur = Math.max(1, Math.min(20, Math.round(Number(req.body?.handsPerTur) || 5)));
+      const handsPerTur = Math.max(1, Math.min(40, Math.round(Number(req.body?.handsPerTur) || 5)));
       // Multi-turn support was removed from the UI; every game is a single turn.
       const totalTurs = 1;
 
