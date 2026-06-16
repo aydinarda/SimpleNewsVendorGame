@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 function OrderForm({ onSubmit, disabled }) {
-  const [quantity, setQuantity] = useState(1000);
+  const [quantity, setQuantity] = useState(100);
   const [error, setError] = useState("");
 
   const handleSubmit = (event) => {
