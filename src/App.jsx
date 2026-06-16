@@ -62,9 +62,11 @@ function App() {
   const [statusMessage, setStatusMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [showRestartConfirm, setShowRestartConfirm] = useState(false);
+  const [finalResultsSeconds, setFinalResultsSeconds] = useState(null);
   const [emojiBurstKey, setEmojiBurstKey] = useState(0);
   const [emojiRaining, setEmojiRaining] = useState(false);
   const prevRoundRef = useRef(null);
+  const finalCountdownStartedRef = useRef(false);
 
   const cumulativeProfit = useMemo(
     () => history.reduce((sum, row) => sum + row.profit, 0),
@@ -75,6 +77,16 @@ function App() {
     () => turHistory.reduce((sum, tur) => sum + tur.cumulativeProfit, 0),
     [turHistory]
   );
+
+  // The final round's result lives in the last turn snapshot, because the server
+  // resets player.history when the turn completes. Used for the "last round
+  // results" screen shown before the final leaderboard.
+  const finalRoundResult = useMemo(() => {
+    if (!turHistory.length) return null;
+    const lastTur = turHistory[turHistory.length - 1];
+    if (!lastTur?.rounds?.length) return null;
+    return lastTur.rounds[lastTur.rounds.length - 1];
+  }, [turHistory]);
 
     // Restore session on page load from URL params or localStorage
     useEffect(() => {
@@ -684,6 +696,37 @@ function App() {
     return () => clearTimeout(timeoutId);
   }, [emojiBurstKey, emojiRaining]);
 
+  // When the game finishes, show the last round's results first, then count down
+  // to the leaderboard. Start once per finish; reset when the game reopens (restart
+  // or "one more round") so the next finish shows the results screen again.
+  useEffect(() => {
+    if (!isGameFinished) {
+      finalCountdownStartedRef.current = false;
+      setFinalResultsSeconds(null);
+      return;
+    }
+
+    if (finalRoundResult && !finalCountdownStartedRef.current) {
+      finalCountdownStartedRef.current = true;
+      setFinalResultsSeconds(15);
+    }
+  }, [isGameFinished, finalRoundResult]);
+
+  // Tick the final-results countdown down to 0, then reveal the leaderboard.
+  useEffect(() => {
+    if (finalResultsSeconds === null) {
+      return undefined;
+    }
+
+    if (finalResultsSeconds <= 0) {
+      setFinalResultsSeconds(null);
+      return undefined;
+    }
+
+    const timeoutId = setTimeout(() => setFinalResultsSeconds((s) => s - 1), 1000);
+    return () => clearTimeout(timeoutId);
+  }, [finalResultsSeconds]);
+
   if (!nickname) {
     return (
       <main className="page auth-page">
@@ -741,6 +784,28 @@ function App() {
             {errorMessage ? <p className="error-text">{errorMessage}</p> : null}
             <button type="submit">Start Game</button>
           </form>
+        </section>
+      </main>
+    );
+  }
+
+  if (isGameFinished && finalResultsSeconds !== null && finalRoundResult) {
+    return (
+      <main className="page">
+        <header className="hero">
+          <p className="eyebrow">Game complete</p>
+          <h1>{nickname}, your final round</h1>
+        </header>
+
+        <RoundResult result={finalRoundResult} />
+
+        <section className="card final-countdown">
+          <p>
+            Final leaderboard in <strong>{finalResultsSeconds}</strong>s…
+          </p>
+          <button type="button" onClick={() => setFinalResultsSeconds(null)}>
+            View leaderboard now
+          </button>
         </section>
       </main>
     );

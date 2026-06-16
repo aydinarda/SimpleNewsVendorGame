@@ -297,6 +297,19 @@ button:disabled {
   margin-top: 16px;
 }
 
+.final-countdown {
+  margin-top: 16px;
+  text-align: center;
+}
+
+.final-countdown p {
+  margin-bottom: 10px;
+}
+
+.final-countdown button {
+  width: 100%;
+}
+
 button.danger {
   background: #c0392b;
 }
