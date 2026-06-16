@@ -29,8 +29,8 @@ const ADMIN_KEY = __ENV.ADMIN_KEY || "admin123";
 const HDR = { headers: { "Content-Type": "application/json" } };
 
 const N_PLAYERS = 100;
-const N_ROUNDS = 12;
-const ROUND_WINDOW = Number(__ENV.ROUND_WINDOW || 60); // seconds a round stays active (~1 min to decide + submit)
+const N_ROUNDS = 30;
+const ROUND_WINDOW = Number(__ENV.ROUND_WINDOW || 45); // seconds a round stays active (~1 min to decide + submit)
 const REVIEW_GAP = Number(__ENV.REVIEW_GAP || 8); // seconds between rounds (players review results/leaderboard)
 const SESSION_SECONDS = N_ROUNDS * (ROUND_WINDOW + REVIEW_GAP) + 60; // whole game + buffer
 const DURATION = __ENV.DURATION || `${SESSION_SECONDS}s`; // players scenario; must cover the whole game
