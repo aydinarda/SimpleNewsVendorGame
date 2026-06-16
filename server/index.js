@@ -113,7 +113,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
         totalTurs,
         handsPerTur,
         initialHandsPerTur: handsPerTur,
-        rounds: Array.from({ length: handsPerTur }, (_, i) => ({ id: i + 1, title: `Hand ${i + 1}` })),
+        rounds: Array.from({ length: handsPerTur }, (_, i) => ({ id: i + 1, title: `Round ${i + 1}` })),
         roundPhase: "pending",
         distribution: { type: "uniform", min: 80, max: 120 },
         prices: { wholesaleCost: 10, retailPrice: 40, salvagePrice: 5 },
@@ -487,7 +487,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
     const dbRoundResults = [];
 
     // Record a result for every player so non-submitters also see the round outcome.
-    // No order submitted means a quantity of 0 (no inventory, zero profit for the hand).
+    // No order submitted means a quantity of 0 (no inventory, zero profit for the round).
     for (const player of activeGame.players.values()) {
       const order = activeGame.activeRoundOrders.get(player.id);
       const orderQuantity = order ? order.orderQuantity : 0;
@@ -607,7 +607,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       return res.status(400).json({ error: "game is still in progress" });
     }
 
-    // Re-open the just-completed turn so the extra hand continues the same run:
+    // Re-open the just-completed turn so the extra round continues the same run:
     // undo the finalize step (turHistory snapshot + score reset) that the last
     // end-round performed, restoring each player's running profit and history.
     for (const player of activeGame.players.values()) {
@@ -621,9 +621,9 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
     }
     activeGame.currentTurIndex = Math.max(0, activeGame.currentTurIndex - 1);
 
-    // Append one more hand and make it the next round to play.
+    // Append one more round and make it the one to play next.
     const newHandId = activeGame.rounds.length + 1;
-    activeGame.rounds.push({ id: newHandId, title: `Hand ${newHandId}` });
+    activeGame.rounds.push({ id: newHandId, title: `Round ${newHandId}` });
     activeGame.handsPerTur = activeGame.rounds.length;
     activeGame.currentRoundIndex = newHandId - 1;
     activeGame.roundPhase = "pending";
@@ -680,8 +680,8 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       id: p.id,
       nickname: p.nickname
     }));
-    // Restart returns to the originally configured number of hands, even if the
-    // game was extended via "one more turn".
+    // Restart returns to the originally configured number of rounds, even if the
+    // game was extended via "one more round".
     const handsPerTur = activeGame.initialHandsPerTur ?? activeGame.handsPerTur;
     const createdAt = new Date().toISOString();
     const newGameId = randomUUID();
@@ -714,7 +714,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       totalTurs: activeGame.totalTurs,
       handsPerTur,
       initialHandsPerTur: handsPerTur,
-      rounds: Array.from({ length: handsPerTur }, (_, i) => ({ id: i + 1, title: `Hand ${i + 1}` })),
+      rounds: Array.from({ length: handsPerTur }, (_, i) => ({ id: i + 1, title: `Round ${i + 1}` })),
       roundPhase: "pending",
       distribution: { ...activeGame.distribution },
       prices: { ...activeGame.prices },

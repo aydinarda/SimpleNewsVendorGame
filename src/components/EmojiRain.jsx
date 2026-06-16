@@ -4,7 +4,7 @@ import { useMemo } from "react";
 const EMOJIS = ["💵", "💰", "🤑", "🌺", "👕", "🍍", "🌴", "🤙", "🏝️"];
 
 function EmojiRain({ count = 40 }) {
-  // Randomized once per mount; we remount via `key` on each hand transition.
+  // Randomized once per mount; we remount via `key` on each round transition.
   const pieces = useMemo(
     () =>
       Array.from({ length: count }, (_, i) => ({

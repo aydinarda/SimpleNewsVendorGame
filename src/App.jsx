@@ -326,7 +326,7 @@ function App() {
       setStatusMessage(
         data.finished
           ? "Game complete."
-          : `Hand ended. Next hand is ${data.nextRound?.id}. Realized demand was ${data.realizedDemand}.`
+          : `Round ended. Next round is ${data.nextRound?.id}. Realized demand was ${data.realizedDemand}.`
       );
       setIsRoundSubmitted(false);
       await syncGameState();
@@ -359,7 +359,7 @@ function App() {
     setErrorMessage("");
   }, []);
 
-  // "One more turn?" — append a single extra hand and resume the same game.
+  // "One more round?" — append a single extra round and resume the same game.
   // The final screen reappears after it ends, so this loops recursively.
   const handleOneMoreHand = async () => {
     try {
@@ -371,7 +371,7 @@ function App() {
       setLeaderboardRows(data.leaderboard || []);
       setLastRoundResult(null);
       setIsRoundSubmitted(false);
-      setStatusMessage("Extra hand added. Start the round when ready.");
+      setStatusMessage("Extra round added. Start the round when ready.");
       await syncGameState();
     } catch (error) {
       setErrorMessage(error.message);
@@ -662,7 +662,7 @@ function App() {
     };
   }, [WS_BASE_URL, gameId, playerId, syncGameState, resetToAuth, applyRestart]);
 
-  // Trigger a falling-emoji burst whenever the hand changes (client-only, no network).
+  // Trigger a falling-emoji burst whenever the round changes (client-only, no network).
   useEffect(() => {
     const roundId = currentRound?.id ?? null;
 
@@ -761,7 +761,7 @@ function App() {
           <section className="card final-actions">
             <div className="admin-buttons">
               <button type="button" onClick={handleOneMoreHand}>
-                One more turn?
+                One more round?
               </button>
               <button type="button" className="danger" onClick={handleEndGame}>
                 End Game
@@ -772,7 +772,7 @@ function App() {
           </section>
         ) : (
           <p className="muted">
-            Waiting for the admin to start another hand or end the game…
+            Waiting for the admin to start another round or end the game…
           </p>
         )}
       </main>
@@ -958,15 +958,13 @@ function App() {
               <table className="leaderboard-table">
                 <thead>
                   <tr>
-                    <th>Turn</th>
-                    <th>Hand</th>
+                    <th>Round</th>
                     <th>Realized Demand</th>
                   </tr>
                 </thead>
                 <tbody>
                   {adminRoundHistory.map((entry, i) => (
                     <tr key={i}>
-                      <td>{entry.turNo}</td>
                       <td>{entry.roundNo}</td>
                       <td>{entry.realizedDemand}</td>
                     </tr>
