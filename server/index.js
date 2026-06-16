@@ -17,6 +17,10 @@ import {
 const PORT = Number(process.env.PORT || 4000);
 const DEFAULT_ADMIN_KEY = process.env.ADMIN_KEY || "admin123";
 
+// When a player does not submit, they keep their previous round's order. If they have no
+// previous round yet (first round / joined late), fall back to this default quantity.
+const FALLBACK_ORDER_QUANTITY = 100;
+
 function calculateLeaderboard(players) {
   return Array.from(players.values())
     .map((player) => {
@@ -487,10 +491,16 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
     const dbRoundResults = [];
 
     // Record a result for every player so non-submitters also see the round outcome.
-    // No order submitted means a quantity of 0 (no inventory, zero profit for the round).
+    // No order submitted carries the player's previous round's order forward, or falls
+    // back to FALLBACK_ORDER_QUANTITY when they have no prior round yet.
     for (const player of activeGame.players.values()) {
       const order = activeGame.activeRoundOrders.get(player.id);
-      const orderQuantity = order ? order.orderQuantity : 0;
+      const lastResult = player.history[player.history.length - 1];
+      const orderQuantity = order
+        ? order.orderQuantity
+        : lastResult
+          ? lastResult.orderQuantity
+          : FALLBACK_ORDER_QUANTITY;
 
       const details = calculateProfit(orderQuantity, realizedDemand, activeGame.prices);
       const roundResult = {

@@ -236,6 +236,7 @@ test("leaderboard does not update during active round and updates after round en
     adminToken: admin.body.adminToken
   });
 
+  
   assert.equal(startRoundResponse.status, 200);
 
   const submitResponse = await request(app).post("/submit-order").send({
@@ -977,4 +978,72 @@ test("set-distribution accepts normal with stdDev=0 (deterministic demand)", asy
   assert.equal(res.body.distribution.stdDev, 0);
   assert.equal(res.body.distribution.min, 100);
   assert.equal(res.body.distribution.max, 100);
+});
+
+// ── Issue #18: non-submitters get a carried/fallback order instead of 0 ───────
+test("non-submitter gets the fallback order quantity on the first round", async () => {
+  const app = createApp({ adminKey: ADMIN_KEY });
+  const admin = await request(app)
+    .post("/start-game")
+    .send({ nickname: "admin", adminKey: ADMIN_KEY, handsPerTur: 2 });
+  const { gameId, adminToken } = admin.body;
+  const player = await request(app).post("/start-game").send({ nickname: "p1", gameId });
+  const playerId = player.body.playerId;
+
+  await request(app).post("/start-round").send({ gameId, adminToken });
+  // p1 does NOT submit
+  await request(app).post("/end-round").send({ gameId, adminToken });
+
+  const gs = await request(app).get("/game-state").query({ gameId, playerId });
+  assert.equal(gs.body.player.history.length, 1);
+  assert.equal(gs.body.player.history[0].orderQuantity, 100);
+});
+
+test("non-submitter carries forward the previous round's order quantity", async () => {
+  const app = createApp({ adminKey: ADMIN_KEY });
+  // Three hands so playing two rounds does not complete the tur (which resets history).
+  const admin = await request(app)
+    .post("/start-game")
+    .send({ nickname: "admin", adminKey: ADMIN_KEY, handsPerTur: 3 });
+  const { gameId, adminToken } = admin.body;
+  const player = await request(app).post("/start-game").send({ nickname: "p1", gameId });
+  const playerId = player.body.playerId;
+
+  // Round 1: submit 150.
+  await request(app).post("/start-round").send({ gameId, adminToken });
+  await request(app).post("/submit-order").send({ gameId, playerId, orderQuantity: 150 });
+  await request(app).post("/end-round").send({ gameId, adminToken });
+
+  // Round 2: no submission -> carries 150 forward.
+  await request(app).post("/start-round").send({ gameId, adminToken });
+  await request(app).post("/end-round").send({ gameId, adminToken });
+
+  const gs = await request(app).get("/game-state").query({ gameId, playerId });
+  assert.equal(gs.body.player.history.length, 2);
+  assert.equal(gs.body.player.history[0].orderQuantity, 150);
+  assert.equal(gs.body.player.history[1].orderQuantity, 150);
+  // Carrying 150 (>= max demand of the default uniform[80,120]) yields a positive profit,
+  // not the zero the old `: 0` default produced.
+  assert.ok(gs.body.player.history[1].profit > 0);
+});
+
+test("a player who never submits gets the fallback every round", async () => {
+  const app = createApp({ adminKey: ADMIN_KEY });
+  // Three hands so playing two rounds does not complete the tur (which resets history).
+  const admin = await request(app)
+    .post("/start-game")
+    .send({ nickname: "admin", adminKey: ADMIN_KEY, handsPerTur: 3 });
+  const { gameId, adminToken } = admin.body;
+  const player = await request(app).post("/start-game").send({ nickname: "p1", gameId });
+  const playerId = player.body.playerId;
+
+  for (let i = 0; i < 2; i++) {
+    await request(app).post("/start-round").send({ gameId, adminToken });
+    await request(app).post("/end-round").send({ gameId, adminToken });
+  }
+
+  const gs = await request(app).get("/game-state").query({ gameId, playerId });
+  assert.equal(gs.body.player.history.length, 2);
+  assert.equal(gs.body.player.history[0].orderQuantity, 100);
+  assert.equal(gs.body.player.history[1].orderQuantity, 100);
 });

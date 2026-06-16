@@ -67,23 +67,26 @@ test("keeps tied players in stable (join) order with sequential ranks", async ()
   ]);
 });
 
-test("a player who never submits scores zero and ranks last", async () => {
+test("a player who never submits is scored with the fallback order, not zero", async () => {
   const app = createApp({ adminKey: ADMIN_KEY });
-  const { gameId, adminToken, alice } = await setupDeterministicGame(app);
+  const { gameId, adminToken, alice } = await setupDeterministicGame(app, { demand: 80 });
   await join(app, gameId, "Idle");
 
   await request(app).post("/start-round").send({ gameId, adminToken });
-  await request(app).post("/submit-order").send({ gameId, playerId: alice, orderQuantity: 100 });
+  await request(app).post("/submit-order").send({ gameId, playerId: alice, orderQuantity: 80 }); // optimal -> 2400
   await request(app).post("/end-round").send({ gameId, adminToken });
 
   const res = await request(app).get("/leaderboard").query({ gameId });
+  // Idle never submitted, so it falls back to an order of 100 (not 0). With demand 80 that
+  // over-orders: 80 sold * 40 + 20 leftover * 5 - 100 * 10 = 3200 + 100 - 1000 = 2300, so
+  // Idle still ranks last but no longer scores zero.
   assert.deepEqual(rows(res), [
-    [1, "Alice", 3000],
-    [2, "Idle", 0]
+    [1, "Alice", 2400],
+    [2, "Idle", 2300]
   ]);
 });
 
-test("a non-submitter still receives a zero-order round result they can see", async () => {
+test("a non-submitter receives a visible round result using the fallback order", async () => {
   const app = createApp({ adminKey: ADMIN_KEY });
   // Two hands so ending hand 1 does not complete the tur (which would reset history).
   const admin = await request(app)
@@ -102,10 +105,12 @@ test("a non-submitter still receives a zero-order round result they can see", as
   assert.equal(state.status, 200);
   assert.equal(state.body.player.history.length, 1);
 
+  // First round with no prior order -> fallback of 100. With demand pinned to 100 that is
+  // an exact match: 100 sold * 40 - 100 * 10 = 3000 (no longer the old zero-order result).
   const result = state.body.player.lastRoundResult;
-  assert.equal(result.orderQuantity, 0);
+  assert.equal(result.orderQuantity, 100);
   assert.equal(result.realizedDemand, 100);
-  assert.equal(result.profit, 0);
+  assert.equal(result.profit, 3000);
 });
 
 test("extreme over-ordering produces a negative cumulative profit", async () => {
