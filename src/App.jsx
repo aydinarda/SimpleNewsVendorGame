@@ -955,6 +955,17 @@ function App() {
             </button>
           </div>
 
+          {isGameFinished ? (
+            <div className="admin-buttons">
+              <button type="button" onClick={handleGoToLeaderboard}>
+                Go to Leaderboard
+              </button>
+              <button type="button" onClick={handleOneMoreHand}>
+                One more round?
+              </button>
+            </div>
+          ) : null}
+
           <div className="restart-control">
             {showRestartConfirm ? (
               <div className="restart-confirm">
@@ -1035,7 +1046,7 @@ function App() {
 
       {roundPhase === "pending" ? <RoundResult result={lastRoundResult || finalRoundResult} /> : null}
 
-      {isGameFinished ? (
+      {isGameFinished && !isAdmin ? (
         <section className="card final-actions">
           <p className="status-line">Game complete — the final round is in. </p>
           <button type="button" className="go-to-leaderboard" onClick={handleGoToLeaderboard}>
