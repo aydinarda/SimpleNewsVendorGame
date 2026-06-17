@@ -29,10 +29,22 @@ test("normal with stdDev=0 collapses to the mean", () => {
   }
 });
 
-test("normal output is never negative (rejection loop guards low draws)", () => {
+test("normal output is never negative (low draws clamp to 0)", () => {
   for (let i = 0; i < 2000; i++) {
     const d = sampleDemand({ type: "normal", mean: 5, stdDev: 20 });
     assert.ok(d >= 0, `negative draw: ${d}`);
+  }
+});
+
+test("normal maps a deeply negative draw straight to 0", () => {
+  const original = Math.random;
+  // u → tiny (large magnitude), v = 0.5 → cos(2πv) = -1, so z is large negative.
+  const queue = [1e-12, 0.5];
+  Math.random = () => queue.shift();
+  try {
+    assert.equal(sampleDemand({ type: "normal", mean: 5, stdDev: 20 }), 0);
+  } finally {
+    Math.random = original;
   }
 });
 

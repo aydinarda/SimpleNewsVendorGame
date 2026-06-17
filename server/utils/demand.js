@@ -15,13 +15,9 @@ export function sampleDemand(distribution) {
   switch (distribution.type) {
     case "uniform":
       return randomUniform(distribution.min, distribution.max);
-    case "normal": {
-      let draw;
-      do {
-        draw = randomNormal(distribution.mean, distribution.stdDev);
-      } while (draw <= 0);
-      return Math.round(draw);
-    }
+    case "normal":
+      // Negative draws map straight to 0 (no resampling).
+      return Math.max(0, Math.round(randomNormal(distribution.mean, distribution.stdDev)));
     default:
       throw new Error(`Unsupported distribution type: ${distribution.type}`);
   }
