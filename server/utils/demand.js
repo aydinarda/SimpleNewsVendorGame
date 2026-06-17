@@ -2,17 +2,6 @@ function randomUniform(min, max) {
   return Math.round(min + Math.random() * (max - min));
 }
 
-function randomTriangular(min, mode, max) {
-  const u = Math.random();
-  const c = (mode - min) / (max - min);
-
-  if (u <= c) {
-    return Math.round(min + Math.sqrt(u * (max - min) * (mode - min)));
-  }
-
-  return Math.round(max - Math.sqrt((1 - u) * (max - min) * (max - mode)));
-}
-
 function randomNormal(mean, stdDev) {
   let u = 0;
   let v = 0;
@@ -26,8 +15,6 @@ export function sampleDemand(distribution) {
   switch (distribution.type) {
     case "uniform":
       return randomUniform(distribution.min, distribution.max);
-    case "triangular":
-      return randomTriangular(distribution.min, distribution.mode, distribution.max);
     case "normal": {
       let draw;
       do {

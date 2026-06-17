@@ -36,13 +36,6 @@ test("normal output is never negative (rejection loop guards low draws)", () => 
   }
 });
 
-test("triangular stays within [min, max]", () => {
-  for (let i = 0; i < 1000; i++) {
-    const d = sampleDemand({ type: "triangular", min: 50, mode: 70, max: 120 });
-    assert.ok(d >= 50 && d <= 120, `out of range: ${d}`);
-  }
-});
-
 test("unsupported distribution type throws", () => {
   assert.throws(() => sampleDemand({ type: "poisson" }), /Unsupported distribution type/);
 });

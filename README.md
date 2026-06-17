@@ -83,7 +83,7 @@ The WebSocket URL is derived automatically (`https://` → `wss://`). Override w
 
 ## Supabase Database (optional)
 
-Without Supabase the game works fully — state is in memory and lost on server restart. Enable it to persist games, orders, and round history across restarts.
+The live game always runs in memory and is lost on server restart — Supabase does **not** restore an in-progress game. Enable it to archive a record of games, players, orders, and round history (write-only) for later analysis.
 
 1. Create a project at [supabase.com](https://supabase.com)
 2. Open **SQL Editor** and run the full contents of [`supabase/schema.sql`](supabase/schema.sql)
@@ -96,12 +96,14 @@ DB writes are fire-and-forget — a Supabase failure will not crash or block the
 
 ## GitHub Actions (CI)
 
-Three workflows in `.github/workflows/`:
+Five workflows in `.github/workflows/`:
 
 | Workflow | Trigger | What it does |
 |---|---|---|
 | `e2e.yml` | Push to `main`, manual | Plays a full game against the live backend via API |
 | `k6-load-test.yml` | Manual | k6 load test — 100 VUs, 4 scenarios (poll storm, concurrent submit, health storm, spike join) |
+| `k6-full-session.yml` | Manual | k6 full session — 100 players × 30 rounds with a mid-game restart |
+| `k6-stress-test.yml` | Manual | k6 limit finder — 300 players plus churn and abusive clients |
 | `load-sim.yml` | Manual | Python async simulation with 50 and 100 concurrent players |
 
 ### Required GitHub Secrets

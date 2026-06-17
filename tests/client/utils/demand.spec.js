@@ -22,14 +22,6 @@ describe("sampleDemand (frontend)", () => {
     expect(sampleDemand({ type: "normal", mean: 100, stdDev: 0, min: 80, max: 120 })).toBe(100);
   });
 
-  it("triangular stays within [min, max]", () => {
-    for (let i = 0; i < 1000; i++) {
-      const d = sampleDemand({ type: "triangular", min: 50, mode: 70, max: 120 });
-      expect(d).toBeGreaterThanOrEqual(50);
-      expect(d).toBeLessThanOrEqual(120);
-    }
-  });
-
   it("throws on an unsupported type", () => {
     expect(() => sampleDemand({ type: "poisson" })).toThrow(/Unsupported distribution type/);
   });
@@ -42,12 +34,6 @@ describe("describeDistribution", () => {
 
   it("formats normal", () => {
     expect(describeDistribution({ type: "normal", mean: 100, stdDev: 10 })).toBe("Normal (μ=100, σ=10)");
-  });
-
-  it("formats triangular", () => {
-    expect(describeDistribution({ type: "triangular", min: 50, mode: 70, max: 120 })).toBe(
-      "Triangular min 50, mode 70, max 120"
-    );
   });
 
   it("falls back to Unknown for unrecognized types", () => {
