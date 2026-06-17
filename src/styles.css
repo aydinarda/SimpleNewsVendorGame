@@ -297,17 +297,14 @@ button:disabled {
   margin-top: 16px;
 }
 
-.final-countdown {
-  margin-top: 16px;
-  text-align: center;
-}
-
-.final-countdown p {
-  margin-bottom: 10px;
-}
-
-.final-countdown button {
+.go-to-leaderboard {
   width: 100%;
+  margin-top: 10px;
+}
+
+.back-to-game {
+  width: 100%;
+  margin-top: 12px;
 }
 
 button.danger {

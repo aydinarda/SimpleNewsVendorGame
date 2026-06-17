@@ -137,7 +137,7 @@ describe("App", () => {
     );
   });
 
-  it("restores a finished session and shows the Final Leaderboard to the player", async () => {
+  it("restores a finished session to the main screen, then opens the Final Leaderboard on demand", async () => {
     session.loadGameSession.mockReturnValue({
       gameId: "g1",
       playerId: "p1",
@@ -167,13 +167,18 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByText(/game complete/i)).toBeInTheDocument();
+    // Finished games no longer auto-route to the leaderboard: the main screen
+    // stays put and only offers a button to go there.
+    expect(await screen.findByText("Welcome, Alice")).toBeInTheDocument();
+    const goButton = await screen.findByRole("button", { name: /go to leaderboard/i });
+    expect(screen.queryByRole("heading", { name: "Final Leaderboard" })).toBeNull();
+
+    await userEvent.click(goButton);
+
     expect(
       await screen.findByRole("heading", { name: "Final Leaderboard" })
     ).toBeInTheDocument();
     expect(await screen.findByText("$3,190")).toBeInTheDocument();
-    // turn-by-turn tables were removed from the finished screen
-    expect(screen.queryByText("Demand")).toBeNull();
   });
 
   it("rains emojis when the hand changes", async () => {

@@ -62,11 +62,10 @@ function App() {
   const [statusMessage, setStatusMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [showRestartConfirm, setShowRestartConfirm] = useState(false);
-  const [finalResultsSeconds, setFinalResultsSeconds] = useState(null);
+  const [showFinalLeaderboard, setShowFinalLeaderboard] = useState(false);
   const [emojiBurstKey, setEmojiBurstKey] = useState(0);
   const [emojiRaining, setEmojiRaining] = useState(false);
   const prevRoundRef = useRef(null);
-  const finalCountdownStartedRef = useRef(false);
 
   const cumulativeProfit = useMemo(
     () => history.reduce((sum, row) => sum + row.profit, 0),
@@ -365,6 +364,7 @@ function App() {
     setTurHistory([]);
     setLeaderboardRows([]);
     setShowLeaderboard(false);
+    setShowFinalLeaderboard(false);
     setLastRoundResult(null);
     setIsRoundSubmitted(false);
     setStatusMessage("");
@@ -383,6 +383,7 @@ function App() {
       setLeaderboardRows(data.leaderboard || []);
       setLastRoundResult(null);
       setIsRoundSubmitted(false);
+      setShowFinalLeaderboard(false);
       setStatusMessage("Extra round added. Start the round when ready.");
       await syncGameState();
     } catch (error) {
@@ -420,6 +421,7 @@ function App() {
       setHasUnsavedDistributionChanges(false);
       setHasUnsavedPriceChanges(false);
       setShowRestartConfirm(false);
+      setShowFinalLeaderboard(false);
       setStatusMessage("Game restarted — back to the beginning.");
       setErrorMessage("");
 
@@ -572,6 +574,18 @@ function App() {
     }
   };
 
+  // "Go to Leaderboard" (everyone, once the game is finished) — pull the latest
+  // standings, then switch to the dedicated final leaderboard screen.
+  const handleGoToLeaderboard = async () => {
+    try {
+      setErrorMessage("");
+      await refreshLeaderboard(gameId);
+    } catch (error) {
+      setErrorMessage(error.message);
+    }
+    setShowFinalLeaderboard(true);
+  };
+
   const handleLeaderboardToggle = async () => {
     const nextVisible = !showLeaderboard;
     setShowLeaderboard(nextVisible);
@@ -696,37 +710,6 @@ function App() {
     return () => clearTimeout(timeoutId);
   }, [emojiBurstKey, emojiRaining]);
 
-  // When the game finishes, show the last round's results first, then count down
-  // to the leaderboard. Start once per finish; reset when the game reopens (restart
-  // or "one more round") so the next finish shows the results screen again.
-  useEffect(() => {
-    if (!isGameFinished) {
-      finalCountdownStartedRef.current = false;
-      setFinalResultsSeconds(null);
-      return;
-    }
-
-    if (finalRoundResult && !finalCountdownStartedRef.current) {
-      finalCountdownStartedRef.current = true;
-      setFinalResultsSeconds(15);
-    }
-  }, [isGameFinished, finalRoundResult]);
-
-  // Tick the final-results countdown down to 0, then reveal the leaderboard.
-  useEffect(() => {
-    if (finalResultsSeconds === null) {
-      return undefined;
-    }
-
-    if (finalResultsSeconds <= 0) {
-      setFinalResultsSeconds(null);
-      return undefined;
-    }
-
-    const timeoutId = setTimeout(() => setFinalResultsSeconds((s) => s - 1), 1000);
-    return () => clearTimeout(timeoutId);
-  }, [finalResultsSeconds]);
-
   if (!nickname) {
     return (
       <main className="page auth-page">
@@ -789,29 +772,7 @@ function App() {
     );
   }
 
-  if (isGameFinished && finalResultsSeconds !== null && finalRoundResult) {
-    return (
-      <main className="page">
-        <header className="hero">
-          <p className="eyebrow">Game complete</p>
-          <h1>{nickname}, your final round</h1>
-        </header>
-
-        <RoundResult result={finalRoundResult} />
-
-        <section className="card final-countdown">
-          <p>
-            Final leaderboard in <strong>{finalResultsSeconds}</strong>s…
-          </p>
-          <button type="button" onClick={() => setFinalResultsSeconds(null)}>
-            View leaderboard now
-          </button>
-        </section>
-      </main>
-    );
-  }
-
-  if (isGameFinished) {
+  if (isGameFinished && showFinalLeaderboard) {
     return (
       <main className="page">
         <header className="hero">
@@ -821,6 +782,10 @@ function App() {
         </header>
 
         <Leaderboard rows={leaderboardRows} title="Final Leaderboard" />
+
+        <button type="button" className="back-to-game" onClick={() => setShowFinalLeaderboard(false)}>
+          Back to game
+        </button>
 
         {isAdmin ? (
           <section className="card final-actions">
@@ -851,7 +816,9 @@ function App() {
         <p className="eyebrow">EverChic Fashions</p>
         <h1>Welcome, {nickname}</h1>
         <p className="muted">
-          Decide order quantities and submit. Server computes demand and profit.
+          {isGameFinished
+            ? "Game complete. Review your final round below or head to the leaderboard."
+            : "Decide order quantities and submit."}
         </p>
       </header>
 
@@ -1066,7 +1033,16 @@ function App() {
         </section>
       ) : null}
 
-      {roundPhase === "pending" ? <RoundResult result={lastRoundResult} /> : null}
+      {roundPhase === "pending" ? <RoundResult result={lastRoundResult || finalRoundResult} /> : null}
+
+      {isGameFinished ? (
+        <section className="card final-actions">
+          <p className="status-line">Game complete — the final round is in. </p>
+          <button type="button" className="go-to-leaderboard" onClick={handleGoToLeaderboard}>
+            Go to Leaderboard
+          </button>
+        </section>
+      ) : null}
 
       {!isAdmin && statusMessage ? <p className="status-line">{statusMessage}</p> : null}
       {!isAdmin && errorMessage ? <p className="error-text">{errorMessage}</p> : null}
