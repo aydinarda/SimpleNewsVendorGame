@@ -172,6 +172,9 @@ describe("App", () => {
     expect(await screen.findByText("Welcome, Alice")).toBeInTheDocument();
     const goButton = await screen.findByRole("button", { name: /go to leaderboard/i });
     expect(screen.queryByRole("heading", { name: "Final Leaderboard" })).toBeNull();
+    // The per-player history is reset server-side at game end, so the running
+    // total on the main screen must fall back to the preserved overall profit.
+    expect(await screen.findByText("$6,420")).toBeInTheDocument();
 
     await userEvent.click(goButton);
 

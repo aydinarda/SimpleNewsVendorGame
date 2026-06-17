@@ -1049,7 +1049,9 @@ function App() {
 
           <section className="card sticky-score">
             <p>Current cumulative profit</p>
-            <strong>${cumulativeProfit.toLocaleString("en-US")}</strong>
+            <strong>
+              ${(isGameFinished ? overallProfit : cumulativeProfit).toLocaleString("en-US")}
+            </strong>
           </section>
         </div>
 

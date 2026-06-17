@@ -1047,3 +1047,36 @@ test("a player who never submits gets the fallback every round", async () => {
   assert.equal(gs.body.player.history[0].orderQuantity, 100);
   assert.equal(gs.body.player.history[1].orderQuantity, 100);
 });
+
+test("one more round still carries forward the previous order for a non-submitter", async () => {
+  const app = createApp({ adminKey: ADMIN_KEY });
+  const admin = await request(app)
+    .post("/start-game")
+    .send({ nickname: "admin", adminKey: ADMIN_KEY, handsPerTur: 2 });
+  const { gameId, adminToken } = admin.body;
+  const player = await request(app).post("/start-game").send({ nickname: "p1", gameId });
+  const playerId = player.body.playerId;
+
+  // Play the whole game; the final submitted order is 200.
+  await request(app).post("/start-round").send({ gameId, adminToken });
+  await request(app).post("/submit-order").send({ gameId, playerId, orderQuantity: 150 });
+  await request(app).post("/end-round").send({ gameId, adminToken });
+
+  await request(app).post("/start-round").send({ gameId, adminToken });
+  await request(app).post("/submit-order").send({ gameId, playerId, orderQuantity: 200 });
+  const finalEnd = await request(app).post("/end-round").send({ gameId, adminToken });
+  assert.equal(finalEnd.body.finished, true); // game over: server reset player.history
+
+  // Admin extends the game; the extra round is played WITHOUT a submission.
+  await request(app).post("/one-more-hand").send({ gameId, adminToken });
+  await request(app).post("/start-round").send({ gameId, adminToken });
+  await request(app).post("/end-round").send({ gameId, adminToken });
+
+  // The extra round completes the tur again, so the result lives in the latest
+  // snapshot. The non-submitter must carry forward round 2's order (200), proving
+  // one-more-hand fully restored history before the carry-forward ran.
+  const gs = await request(app).get("/game-state").query({ gameId, playerId });
+  const lastTur = gs.body.player.turHistory[gs.body.player.turHistory.length - 1];
+  assert.equal(lastTur.rounds.length, 3);
+  assert.equal(lastTur.rounds[2].orderQuantity, 200);
+});
