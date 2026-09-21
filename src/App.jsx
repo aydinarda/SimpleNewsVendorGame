@@ -977,7 +977,7 @@ function App() {
                   }}
                   disabled={roundPhase === "active"}
                 />
-                <label htmlFor="dist-mode">Mode (most likely)</label>
+                <label htmlFor="dist-mode">Mode</label>
                 <input
                   id="dist-mode"
                   type="number"
