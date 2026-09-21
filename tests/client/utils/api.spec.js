@@ -32,6 +32,18 @@ describe("api request wrapper", () => {
     await expect(startGame({ nickname: "Alice" })).rejects.toThrow("this username is taken");
   });
 
+  it("attaches the full error body so callers can read extra fields", async () => {
+    mockJson(
+      { error: "invalid or inactive game id", restartedGameId: "g2" },
+      { ok: false, status: 400, statusText: "Bad Request" }
+    );
+
+    await expect(fetchGameState({ gameId: "g1", playerId: "p1" })).rejects.toMatchObject({
+      message: "invalid or inactive game id",
+      payload: { restartedGameId: "g2" }
+    });
+  });
+
   it("submitOrder sends gameId, playerId and orderQuantity", async () => {
     mockJson({ accepted: true });
 

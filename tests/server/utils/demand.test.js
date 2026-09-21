@@ -48,6 +48,39 @@ test("normal maps a deeply negative draw straight to 0", () => {
   }
 });
 
+test("triangular stays within [min, max] and centers on (min + mode + max) / 3", () => {
+  const distribution = { type: "triangular", min: 60, mode: 90, max: 150 };
+  let sum = 0;
+  const draws = 20000;
+  for (let i = 0; i < draws; i++) {
+    const d = sampleDemand(distribution);
+    assert.ok(d >= 60 && d <= 150, `out of range: ${d}`);
+    sum += d;
+  }
+  // Theoretical mean is 100; the sample mean of 20k draws lands well within ±1.
+  assert.ok(Math.abs(sum / draws - 100) < 1, `sample mean ${sum / draws}`);
+});
+
+test("triangular maps the ends of the random range onto min and max", () => {
+  const original = Math.random;
+  try {
+    Math.random = () => 0;
+    assert.equal(sampleDemand({ type: "triangular", min: 80, mode: 100, max: 120 }), 80);
+    Math.random = () => 1 - Number.EPSILON;
+    assert.equal(sampleDemand({ type: "triangular", min: 80, mode: 100, max: 120 }), 120);
+  } finally {
+    Math.random = original;
+  }
+});
+
+test("triangular with the peak on a bound and a degenerate range", () => {
+  for (let i = 0; i < 500; i++) {
+    const d = sampleDemand({ type: "triangular", min: 80, mode: 80, max: 120 });
+    assert.ok(d >= 80 && d <= 120, `out of range: ${d}`);
+  }
+  assert.equal(sampleDemand({ type: "triangular", min: 100, mode: 100, max: 100 }), 100);
+});
+
 test("unsupported distribution type throws", () => {
   assert.throws(() => sampleDemand({ type: "poisson" }), /Unsupported distribution type/);
 });

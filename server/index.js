@@ -21,6 +21,10 @@ const DEFAULT_ADMIN_KEY = process.env.ADMIN_KEY || "admin123";
 // previous round yet (first round / joined late), fall back to this default quantity.
 const FALLBACK_ORDER_QUANTITY = 100;
 
+// How often every WebSocket is pinged. A socket that misses a pong by the next tick is
+// dropped, and the traffic keeps idle connections from being cut by proxies.
+const HEARTBEAT_INTERVAL_MS = 30_000;
+
 function calculateLeaderboard(players) {
   return Array.from(players.values())
     .map((player) => {
@@ -125,7 +129,8 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
         roundHistory: [],
         leaderboard: [],
         activeRoundDemand: null,
-        activeRoundOrders: new Map()
+        activeRoundOrders: new Map(),
+        previousGameIds: []
       };
 
       activeGame.distributionHistory.push({
@@ -210,7 +215,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
   });
 
   app.post("/set-distribution", (req, res) => {
-    const { gameId, adminToken, type, min, max, mean } = req.body || {};
+    const { gameId, adminToken, type, min, max, mean, mode } = req.body || {};
 
     if (!activeGame || gameId !== activeGame.id) {
       return res.status(400).json({ error: "invalid or inactive game id" });
@@ -224,11 +229,38 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       return res.status(400).json({ error: "cannot change distribution during active round" });
     }
 
-    const distType = type === "normal" ? "normal" : "uniform";
+    const distType = type === "normal" || type === "triangular" ? type : "uniform";
 
     let newDistribution;
 
-    if (distType === "normal") {
+    if (distType === "triangular") {
+      const parsedMin = Number(min);
+      const parsedMode = Number(mode);
+      const parsedMax = Number(max);
+
+      if (!Number.isFinite(parsedMin) || !Number.isFinite(parsedMode) || !Number.isFinite(parsedMax)) {
+        return res.status(400).json({ error: "min, mode and max must be numbers" });
+      }
+
+      if (parsedMin < 0 || parsedMode < 0 || parsedMax < 0) {
+        return res.status(400).json({ error: "none of the variables can be less than 0" });
+      }
+
+      if (parsedMin >= parsedMax) {
+        return res.status(400).json({ error: "min cannot be higher than max" });
+      }
+
+      if (parsedMode < parsedMin || parsedMode > parsedMax) {
+        return res.status(400).json({ error: "mode must be between min and max" });
+      }
+
+      newDistribution = {
+        type: "triangular",
+        min: Math.round(parsedMin),
+        mode: Math.round(parsedMode),
+        max: Math.round(parsedMax)
+      };
+    } else if (distType === "normal") {
       const parsedMean = Number(mean);
       const parsedStdDev = Number(req.body?.stdDev);
 
@@ -732,7 +764,10 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
       roundHistory: [],
       leaderboard: [],
       activeRoundDemand: null,
-      activeRoundOrders: new Map()
+      activeRoundOrders: new Map(),
+      // Every id this run has had, so a client that missed the restart push can be
+      // pointed at the new id instead of being stranded on a dead one.
+      previousGameIds: [...(activeGame.previousGameIds || []), oldGameId]
     };
 
     restarted.distributionHistory.push({
@@ -796,7 +831,14 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
     const adminToken = req.query.adminToken;
 
     if (!activeGame || gameId !== activeGame.id) {
-      return res.status(400).json({ error: "invalid or inactive game id" });
+      // A player still holding a pre-restart id (offline or disconnected during the
+      // restart) gets the current id back so the client can move over.
+      const restartedGameId =
+        activeGame?.previousGameIds?.includes(gameId) && activeGame.players.has(playerId)
+          ? activeGame.id
+          : undefined;
+
+      return res.status(400).json({ error: "invalid or inactive game id", restartedGameId });
     }
 
     const player = playerId ? activeGame.players.get(playerId) : null;
@@ -852,7 +894,7 @@ export function createApp({ adminKey = DEFAULT_ADMIN_KEY, onGameEvent } = {}) {
   return app;
 }
 
-export function createGameServer({ adminKey } = {}) {
+export function createGameServer({ adminKey, heartbeatIntervalMs = HEARTBEAT_INTERVAL_MS } = {}) {
   const clients = new Set();
 
   const server = http.createServer(
@@ -880,7 +922,12 @@ export function createGameServer({ adminKey } = {}) {
 
   wss.on("connection", (ws) => {
     ws.subscription = null;
+    ws.isAlive = true;
     clients.add(ws);
+
+    ws.on("pong", () => {
+      ws.isAlive = true;
+    });
 
     ws.on("message", (raw) => {
       try {
@@ -903,6 +950,22 @@ export function createGameServer({ adminKey } = {}) {
       clients.delete(ws);
     });
   });
+
+  // Browsers answer pings automatically; a socket that stays silent for a whole
+  // interval is dead (sleeping laptop, lost Wi-Fi) and gets dropped.
+  const heartbeat = setInterval(() => {
+    for (const ws of clients) {
+      if (!ws.isAlive) {
+        ws.terminate();
+        continue;
+      }
+
+      ws.isAlive = false;
+      ws.ping();
+    }
+  }, heartbeatIntervalMs);
+  heartbeat.unref();
+  server.on("close", () => clearInterval(heartbeat));
 
   server.on("upgrade", (request, socket, head) => {
     if (!request.url || !request.url.startsWith("/ws")) {

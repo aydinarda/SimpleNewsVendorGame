@@ -84,6 +84,7 @@ export async function recordRoundStarted({
         dist_max: distribution.max,
         dist_mean: distribution.mean ?? null,
         dist_std_dev: distribution.stdDev ?? null,
+        dist_mode: distribution.mode ?? null,
         wholesale_cost: prices.wholesaleCost,
         retail_price: prices.retailPrice,
         salvage_price: prices.salvagePrice,

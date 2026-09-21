@@ -38,5 +38,9 @@ export function describeDistribution(distribution) {
     return `Normal (μ=${distribution.mean}, σ=${distribution.stdDev})`;
   }
 
+  if (distribution.type === "triangular") {
+    return `Triangular (min=${distribution.min}, mode=${distribution.mode}, max=${distribution.max})`;
+  }
+
   return "Unknown distribution";
 }

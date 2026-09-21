@@ -28,6 +28,7 @@ create table if not exists rounds (
   dist_max int not null,
   dist_mean numeric(10,2),
   dist_std_dev numeric(10,2),
+  dist_mode int,
   wholesale_cost numeric(10,2) not null default 10,
   retail_price numeric(10,2) not null default 40,
   salvage_price numeric(10,2) not null default 5,
@@ -36,6 +37,9 @@ create table if not exists rounds (
   ended_at timestamptz,
   unique (game_id, tur_no, round_id)
 );
+
+-- Databases created before the triangular distribution existed.
+alter table rounds add column if not exists dist_mode int;
 
 create table if not exists orders (
   id uuid primary key default gen_random_uuid(),

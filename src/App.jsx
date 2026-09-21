@@ -26,6 +26,7 @@ import {
   updateUrlWithSession,
   getSessionFromUrl
 } from "./utils/sessionStorage";
+import { describeDistribution } from "./utils/demand";
 function App() {
   const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
   const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || API_BASE_URL.replace(/^http/, "ws");
@@ -48,6 +49,7 @@ function App() {
   const [distributionMax, setDistributionMax] = useState("120");
   const [distributionMean, setDistributionMean] = useState("100");
   const [distributionStdDev, setDistributionStdDev] = useState("10");
+  const [distributionMode, setDistributionMode] = useState("100");
   const [hasUnsavedDistributionChanges, setHasUnsavedDistributionChanges] = useState(false);
   const [wholesaleCost, setWholesaleCost] = useState("10");
   const [retailPrice, setRetailPrice] = useState("40");
@@ -97,15 +99,35 @@ function App() {
         // Resume session
         const restoreAsync = async () => {
           try {
-            // Fetch fresh game state from server
-            const data = await fetchGameState({
-              gameId: sessionToRestore.gameId,
+            const restoreParams = {
               playerId: sessionToRestore.playerId,
               adminToken: storedSession?.adminToken || undefined
-            });
+            };
+            let restoredGameId = sessionToRestore.gameId;
+            let data;
+
+            // Fetch fresh game state from server
+            try {
+              data = await fetchGameState({ gameId: restoredGameId, ...restoreParams });
+            } catch (error) {
+              // The game was restarted while this tab was closed: continue on the new id.
+              const restartedGameId = error.payload?.restartedGameId;
+              if (!restartedGameId) {
+                throw error;
+              }
+              restoredGameId = restartedGameId;
+              data = await fetchGameState({ gameId: restoredGameId, ...restoreParams });
+              saveGameSession({
+                ...storedSession,
+                gameId: restoredGameId,
+                playerId: sessionToRestore.playerId,
+                roundPhase: data.roundPhase || "pending"
+              });
+              updateUrlWithSession(restoredGameId, sessionToRestore.playerId);
+            }
 
             // Restore all state from fresh data
-            setGameId(sessionToRestore.gameId);
+            setGameId(restoredGameId);
             setPlayerId(sessionToRestore.playerId);
             setNickname(storedSession?.nickname || "Player");
             setIsAdmin(storedSession?.isAdmin || false);
@@ -117,6 +139,7 @@ function App() {
             setDistributionMax(String(data.distribution?.max ?? 120));
             setDistributionMean(String(data.distribution?.mean ?? 100));
             setDistributionStdDev(String(data.distribution?.stdDev ?? 10));
+            setDistributionMode(String(data.distribution?.mode ?? 100));
             setHasUnsavedDistributionChanges(false);
             setWholesaleCost(String(data.prices?.wholesaleCost ?? 10));
             setRetailPrice(String(data.prices?.retailPrice ?? 40));
@@ -130,8 +153,9 @@ function App() {
             setStatusMessage("📍 Session restored from previous session");
           } catch (error) {
             console.error("Failed to restore session:", error);
-            // Clear invalid session
+            // Clear invalid session (URL too, or every reload would retry the dead id)
             clearGameSession();
+            clearUrlSession();
             setErrorMessage("Failed to restore session. Please start a new game.");
           }
         };
@@ -146,12 +170,71 @@ function App() {
     setLeaderboardRows(data.leaderboard || []);
   };
 
+  // Move this client onto the restarted game id and wipe local progress back to
+  // the very beginning. Player id and nickname are kept; the admin keeps its
+  // (reused) adminToken, so newAdminToken is only passed for the calling admin.
+  const applyRestart = useCallback(
+    ({ newGameId, newAdminToken, currentRound: nextRound, roundPhase: nextPhase }) => {
+      setGameId(newGameId);
+      if (newAdminToken !== undefined) {
+        setAdminToken(newAdminToken);
+      }
+      setCurrentRound(nextRound ?? null);
+      setRoundPhase(nextPhase ?? "pending");
+      setHistory([]);
+      setTurHistory([]);
+      setLeaderboardRows([]);
+      setLastRoundResult(null);
+      setIsRoundSubmitted(false);
+      setHasUnsavedDistributionChanges(false);
+      setHasUnsavedPriceChanges(false);
+      setShowRestartConfirm(false);
+      setShowFinalLeaderboard(false);
+      setStatusMessage("Game restarted — back to the beginning.");
+      setErrorMessage("");
+
+      saveGameSession({
+        gameId: newGameId,
+        playerId,
+        nickname,
+        isAdmin,
+        adminToken: newAdminToken ?? adminToken,
+        roundPhase: nextPhase ?? "pending"
+      });
+      updateUrlWithSession(newGameId, playerId);
+    },
+    [playerId, nickname, isAdmin, adminToken]
+  );
+
   const syncGameState = useCallback(async () => {
     if (!gameId || !playerId) {
       return;
     }
 
-    const data = await fetchGameState({ gameId, playerId, adminToken: isAdmin ? adminToken : undefined });
+    const requestAdminToken = isAdmin ? adminToken : undefined;
+    let data;
+
+    try {
+      data = await fetchGameState({ gameId, playerId, adminToken: requestAdminToken });
+    } catch (error) {
+      // Missed the game_restarted push (offline / dropped socket): follow the restart now.
+      const restartedGameId = error.payload?.restartedGameId;
+      if (!restartedGameId) {
+        throw error;
+      }
+
+      const restarted = await fetchGameState({
+        gameId: restartedGameId,
+        playerId,
+        adminToken: requestAdminToken
+      });
+      applyRestart({
+        newGameId: restartedGameId,
+        currentRound: restarted.currentRound,
+        roundPhase: restarted.roundPhase
+      });
+      return;
+    }
 
     setCurrentRound(data.currentRound);
     setRoundPhase(data.roundPhase || "pending");
@@ -169,6 +252,7 @@ function App() {
         setDistributionMax(String(data.distribution.max));
         setDistributionMean(String(data.distribution.mean ?? 100));
         setDistributionStdDev(String(data.distribution?.stdDev ?? 10));
+        setDistributionMode(String(data.distribution.mode ?? 100));
         setHasUnsavedDistributionChanges(false);
       }
     }
@@ -213,7 +297,8 @@ function App() {
     isAdmin,
     adminToken,
     hasUnsavedDistributionChanges,
-    hasUnsavedPriceChanges
+    hasUnsavedPriceChanges,
+    applyRestart
   ]);
 
   const handleNicknameSubmit = async (event) => {
@@ -249,6 +334,7 @@ function App() {
       setDistributionMax(String(data.distribution?.max ?? 120));
       setDistributionMean(String(data.distribution?.mean ?? 100));
       setDistributionStdDev(String(data.distribution?.stdDev ?? 10));
+      setDistributionMode(String(data.distribution?.mode ?? 100));
       setHasUnsavedDistributionChanges(false);
       setWholesaleCost(String(data.prices?.wholesaleCost ?? 10));
       setRetailPrice(String(data.prices?.retailPrice ?? 40));
@@ -325,6 +411,7 @@ function App() {
         setDistributionMax(String(data.distribution.max));
         setDistributionMean(String(data.distribution.mean ?? 100));
         setDistributionStdDev(String(data.distribution?.stdDev ?? 10));
+        setDistributionMode(String(data.distribution.mode ?? 100));
         setHasUnsavedDistributionChanges(false);
       }
       if (data.prices) {
@@ -402,42 +489,6 @@ function App() {
     }
   };
 
-  // Move this client onto the restarted game id and wipe local progress back to
-  // the very beginning. Player id and nickname are kept; the admin keeps its
-  // (reused) adminToken, so newAdminToken is only passed for the calling admin.
-  const applyRestart = useCallback(
-    ({ newGameId, newAdminToken, currentRound: nextRound, roundPhase: nextPhase }) => {
-      setGameId(newGameId);
-      if (newAdminToken !== undefined) {
-        setAdminToken(newAdminToken);
-      }
-      setCurrentRound(nextRound ?? null);
-      setRoundPhase(nextPhase ?? "pending");
-      setHistory([]);
-      setTurHistory([]);
-      setLeaderboardRows([]);
-      setLastRoundResult(null);
-      setIsRoundSubmitted(false);
-      setHasUnsavedDistributionChanges(false);
-      setHasUnsavedPriceChanges(false);
-      setShowRestartConfirm(false);
-      setShowFinalLeaderboard(false);
-      setStatusMessage("Game restarted — back to the beginning.");
-      setErrorMessage("");
-
-      saveGameSession({
-        gameId: newGameId,
-        playerId,
-        nickname,
-        isAdmin,
-        adminToken: newAdminToken ?? adminToken,
-        roundPhase: nextPhase ?? "pending"
-      });
-      updateUrlWithSession(newGameId, playerId);
-    },
-    [playerId, nickname, isAdmin, adminToken]
-  );
-
   // "Restart Game" (admin) — fresh game id, same roster, all histories reset.
   const handleRestartGame = async () => {
     try {
@@ -483,6 +534,32 @@ function App() {
         }
 
         distPayload = { ...distPayload, mean: parsedMean, stdDev: parsedStdDev };
+      } else if (distributionType === "triangular") {
+        const parsedMin = Number(distributionMin);
+        const parsedMode = Number(distributionMode);
+        const parsedMax = Number(distributionMax);
+
+        if (!Number.isFinite(parsedMin) || !Number.isFinite(parsedMode) || !Number.isFinite(parsedMax)) {
+          setErrorMessage("Triangular min, mode and max must be valid numbers.");
+          return;
+        }
+
+        if (parsedMin < 0 || parsedMode < 0 || parsedMax < 0) {
+          setErrorMessage("none of the variables can be less than 0");
+          return;
+        }
+
+        if (parsedMin >= parsedMax) {
+          setErrorMessage("min cannot be higher than max");
+          return;
+        }
+
+        if (parsedMode < parsedMin || parsedMode > parsedMax) {
+          setErrorMessage("Mode must be between min and max.");
+          return;
+        }
+
+        distPayload = { ...distPayload, min: parsedMin, mode: parsedMode, max: parsedMax };
       } else {
         const parsedMin = Number(distributionMin);
         const parsedMax = Number(distributionMax);
@@ -550,6 +627,7 @@ function App() {
       setDistributionMax(String(distData.distribution.max));
       setDistributionMean(String(distData.distribution.mean ?? 100));
       setDistributionStdDev(String(distData.distribution?.stdDev ?? 10));
+      setDistributionMode(String(distData.distribution.mode ?? 100));
       setHasUnsavedDistributionChanges(false);
       setCurrentRound((prev) => {
         if (!prev) return prev;
@@ -561,13 +639,8 @@ function App() {
       setSalvagePrice(String(pricesData.prices.salvagePrice));
       setHasUnsavedPriceChanges(false);
 
-      const distDesc =
-        distData.distribution.type === "normal"
-          ? `Normal (μ=${distData.distribution.mean}, σ=${distData.distribution.stdDev})`
-          : `Uniform [${distData.distribution.min}, ${distData.distribution.max}]`;
-
       setStatusMessage(
-        `Parameters updated — Distribution: ${distDesc} | Retail $${pricesData.prices.retailPrice}, Wholesale $${pricesData.prices.wholesaleCost}, Salvage $${pricesData.prices.salvagePrice}.`
+        `Parameters updated — Distribution: ${describeDistribution(distData.distribution)} | Retail $${pricesData.prices.retailPrice}, Wholesale $${pricesData.prices.wholesaleCost}, Salvage $${pricesData.prices.salvagePrice}.`
       );
     } catch (error) {
       setErrorMessage(error.message);
@@ -626,21 +699,24 @@ function App() {
       return undefined;
     }
 
-    const ws = new WebSocket(`${WS_BASE_URL}/ws`);
+    let ws = null;
+    let retryTimer = null;
+    let retryAttempt = 0;
+    let disposed = false;
 
-    ws.addEventListener("open", () => {
-      ws.send(
-        JSON.stringify({
-          type: "subscribe",
-          gameId,
-          playerId
-        })
-      );
-    });
-
-    ws.addEventListener("message", (event) => {
+    const handleMessage = (event) => {
       try {
         const message = JSON.parse(event.data);
+
+        if (message?.type === "subscribed") {
+          retryAttempt = 0;
+          // Pull a fresh snapshot once subscribed, so events that fired while the
+          // socket was down (or before the subscription landed) are not lost.
+          syncGameState().catch(() => {
+            // Polling will recover eventual consistency.
+          });
+          return;
+        }
 
         if (message?.type === "game_event") {
           const eventType = message.payload?.type;
@@ -681,9 +757,53 @@ function App() {
       } catch (_error) {
         // Ignore malformed websocket messages.
       }
-    });
+    };
+
+    const connect = () => {
+      retryTimer = null;
+      const socket = new WebSocket(`${WS_BASE_URL}/ws`);
+      ws = socket;
+
+      socket.addEventListener("open", () => {
+        socket.send(
+          JSON.stringify({
+            type: "subscribe",
+            gameId,
+            playerId
+          })
+        );
+      });
+
+      socket.addEventListener("message", handleMessage);
+
+      // Dropped connection (Wi-Fi switch, sleeping laptop, server restart):
+      // retry with exponential backoff, capped at 10s.
+      socket.addEventListener("close", () => {
+        if (disposed) {
+          return;
+        }
+        const delay = Math.min(10000, 1000 * 2 ** retryAttempt);
+        retryAttempt += 1;
+        retryTimer = setTimeout(connect, delay);
+      });
+    };
+
+    // A phone or laptop coming back to the tab skips the rest of the backoff wait.
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && retryTimer) {
+        clearTimeout(retryTimer);
+        retryAttempt = 0;
+        connect();
+      }
+    };
+
+    connect();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
+      disposed = true;
+      clearTimeout(retryTimer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       ws.close();
     };
   }, [WS_BASE_URL, gameId, playerId, syncGameState, resetToAuth, applyRestart]);
@@ -841,9 +961,46 @@ function App() {
             >
               <option value="uniform">Uniform</option>
               <option value="normal">Normal</option>
+              <option value="triangular">Triangular</option>
             </select>
 
-            {distributionType === "uniform" ? (
+            {distributionType === "triangular" ? (
+              <>
+                <label htmlFor="dist-min">Triangular min</label>
+                <input
+                  id="dist-min"
+                  type="number"
+                  value={distributionMin}
+                  onChange={(event) => {
+                    setDistributionMin(event.target.value);
+                    setHasUnsavedDistributionChanges(true);
+                  }}
+                  disabled={roundPhase === "active"}
+                />
+                <label htmlFor="dist-mode">Mode (most likely)</label>
+                <input
+                  id="dist-mode"
+                  type="number"
+                  value={distributionMode}
+                  onChange={(event) => {
+                    setDistributionMode(event.target.value);
+                    setHasUnsavedDistributionChanges(true);
+                  }}
+                  disabled={roundPhase === "active"}
+                />
+                <label htmlFor="dist-max">Triangular max</label>
+                <input
+                  id="dist-max"
+                  type="number"
+                  value={distributionMax}
+                  onChange={(event) => {
+                    setDistributionMax(event.target.value);
+                    setHasUnsavedDistributionChanges(true);
+                  }}
+                  disabled={roundPhase === "active"}
+                />
+              </>
+            ) : distributionType === "uniform" ? (
               <>
                 <label htmlFor="dist-min">Uniform min</label>
                 <input

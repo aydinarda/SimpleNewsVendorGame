@@ -18,7 +18,10 @@ async function request(path, options = {}) {
   }
 
   if (!response.ok) {
-    throw new Error(payload.error || `Request failed with status ${response.status}`);
+    const error = new Error(payload.error || `Request failed with status ${response.status}`);
+    // Keep the full body so callers can act on extra fields (e.g. restartedGameId).
+    error.payload = payload;
+    throw error;
   }
 
   return payload;

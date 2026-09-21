@@ -36,6 +36,12 @@ describe("describeDistribution", () => {
     expect(describeDistribution({ type: "normal", mean: 100, stdDev: 10 })).toBe("Normal (μ=100, σ=10)");
   });
 
+  it("formats triangular", () => {
+    expect(describeDistribution({ type: "triangular", min: 80, mode: 100, max: 140 })).toBe(
+      "Triangular (min=80, mode=100, max=140)"
+    );
+  });
+
   it("falls back to Unknown for unrecognized types", () => {
     expect(describeDistribution({ type: "weird" })).toBe("Unknown distribution");
   });

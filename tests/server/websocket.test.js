@@ -109,6 +109,27 @@ test("does not deliver events for a different game", async (t) => {
   assert.equal(received, false);
 });
 
+test("heartbeat drops sockets that stop answering pings and keeps live ones", async (t) => {
+  const { server } = createGameServer({ adminKey: ADMIN_KEY, heartbeatIntervalMs: 50 });
+  await new Promise((resolve) => server.listen(0, resolve));
+  const { port } = server.address();
+
+  const live = await connect(port);
+  const silent = new WebSocket(`ws://localhost:${port}/ws`, { autoPong: false });
+  await new Promise((resolve) => silent.once("open", resolve));
+  t.after(() => {
+    live.terminate();
+    silent.terminate();
+    server.close();
+  });
+
+  // The silent socket is terminated within two intervals; the live one outlasts it.
+  await new Promise((resolve) => silent.once("close", resolve));
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  assert.equal(live.readyState, WebSocket.OPEN);
+});
+
 test("invalid payloads receive an error message", async (t) => {
   const { server, port } = await startServer();
   const ws = await connect(port);

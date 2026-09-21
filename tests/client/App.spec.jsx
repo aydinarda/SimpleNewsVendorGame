@@ -225,4 +225,142 @@ describe("App", () => {
 
     await waitFor(() => expect(document.querySelector(".emoji-rain")).not.toBeNull());
   });
+
+  describe("connection recovery", () => {
+    const joinResponse = {
+      gameId: "g1",
+      playerId: "p1",
+      nickname: "Alice",
+      adminToken: undefined,
+      currentRound: { id: 1, title: "Hand 1", distribution },
+      roundPhase: "active",
+      distribution,
+      prices,
+      totalRounds: 5,
+      totalTurs: 1,
+      currentTurIndex: 0,
+      roundsPlayed: 0,
+      cumulativeProfit: 0
+    };
+
+    const restartedError = () =>
+      Object.assign(new Error("invalid or inactive game id"), {
+        payload: { error: "invalid or inactive game id", restartedGameId: "g2" }
+      });
+
+    async function joinAsAlice() {
+      api.startGame.mockResolvedValue(joinResponse);
+      render(<App />);
+      await userEvent.type(screen.getByLabelText(/nickname/i), "Alice");
+      await userEvent.click(screen.getByRole("button", { name: /start game/i }));
+      await screen.findByText("Welcome, Alice");
+      await waitFor(() => expect(MockWebSocket.instances.length).toBeGreaterThan(0));
+      return MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    }
+
+    it("reconnects after the socket drops and resyncs once subscribed again", async () => {
+      const first = await joinAsAlice();
+      const socketsBefore = MockWebSocket.instances.length;
+
+      // Unexpected drop: the server went away, nobody called close() on purpose.
+      act(() => {
+        first.readyState = 3;
+        first._emit("close");
+      });
+
+      await waitFor(() => expect(MockWebSocket.instances.length).toBe(socketsBefore + 1), {
+        timeout: 2500
+      });
+
+      const callsBefore = api.fetchGameState.mock.calls.length;
+      const second = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      await act(async () => {
+        second._emit("message", { data: JSON.stringify({ type: "subscribed", gameId: "g1" }) });
+      });
+
+      await waitFor(() => expect(api.fetchGameState.mock.calls.length).toBeGreaterThan(callsBefore));
+    });
+
+    it("follows a restart it missed while disconnected", async () => {
+      const ws = await joinAsAlice();
+      api.fetchGameState.mockImplementation(async ({ gameId }) => {
+        if (gameId === "g1") throw restartedError();
+        return { ...baseGameState, gameId: "g2" };
+      });
+
+      await act(async () => {
+        ws._emit("message", { data: JSON.stringify({ type: "subscribed", gameId: "g1" }) });
+      });
+
+      await waitFor(() => expect(session.updateUrlWithSession).toHaveBeenCalledWith("g2", "p1"));
+      expect(await screen.findByText(/game restarted/i)).toBeInTheDocument();
+    });
+
+    it("restores a session onto the restarted game after a reload", async () => {
+      session.loadGameSession.mockReturnValue({
+        gameId: "g1",
+        playerId: "p1",
+        nickname: "Alice",
+        isAdmin: false,
+        adminToken: ""
+      });
+      api.fetchGameState.mockImplementation(async ({ gameId }) => {
+        if (gameId === "g1") throw restartedError();
+        return { ...baseGameState, gameId: "g2" };
+      });
+
+      render(<App />);
+
+      expect(await screen.findByText("Welcome, Alice")).toBeInTheDocument();
+      expect(session.saveGameSession).toHaveBeenCalledWith(
+        expect.objectContaining({ gameId: "g2", playerId: "p1" })
+      );
+      expect(session.updateUrlWithSession).toHaveBeenCalledWith("g2", "p1");
+      expect(session.clearGameSession).not.toHaveBeenCalled();
+    });
+  });
+
+  it("lets the admin set a triangular distribution", async () => {
+    const triangular = { type: "triangular", min: 80, mode: 95, max: 120 };
+    api.startGame.mockResolvedValue({
+      gameId: "g1",
+      playerId: "admin",
+      nickname: "Prof",
+      adminToken: "tok",
+      currentRound: { id: 1, title: "Round 1", distribution },
+      roundPhase: "pending",
+      distribution,
+      prices,
+      totalRounds: 5,
+      totalTurs: 1,
+      currentTurIndex: 0
+    });
+    api.fetchGameState.mockResolvedValue({
+      ...baseGameState,
+      roundPhase: "pending",
+      player: { ...baseGameState.player, id: "admin", nickname: "Prof" }
+    });
+    api.setDistribution.mockResolvedValue({ distribution: triangular });
+    api.setPrices.mockResolvedValue({ prices });
+
+    render(<App />);
+    await userEvent.type(screen.getByLabelText(/nickname/i), "Prof");
+    await userEvent.click(screen.getByLabelText(/create active game as admin/i));
+    await userEvent.type(screen.getByLabelText(/admin key/i), "secret");
+    await userEvent.click(screen.getByRole("button", { name: /start game/i }));
+    await screen.findByText("Welcome, Prof");
+
+    await userEvent.selectOptions(screen.getByLabelText(/distribution type/i), "triangular");
+    const modeInput = screen.getByLabelText(/mode/i);
+    await userEvent.clear(modeInput);
+    await userEvent.type(modeInput, "95");
+    await userEvent.click(screen.getByRole("button", { name: /set parameters/i }));
+
+    await waitFor(() =>
+      expect(api.setDistribution).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "triangular", min: 80, mode: 95, max: 120 })
+      )
+    );
+    expect(await screen.findByText(/Triangular \(min=80, mode=95, max=120\)/)).toBeInTheDocument();
+  });
 });

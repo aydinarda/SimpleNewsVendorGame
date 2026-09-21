@@ -11,6 +11,16 @@ function randomNormal(mean, stdDev) {
   return mean + z * stdDev;
 }
 
+// Inverse-CDF draw: the density rises linearly from min to a peak at mode, then falls to max.
+function randomTriangular(min, mode, max) {
+  if (max === min) return min;
+  const u = Math.random();
+  const peakAt = (mode - min) / (max - min);
+  return u < peakAt
+    ? min + Math.sqrt(u * (max - min) * (mode - min))
+    : max - Math.sqrt((1 - u) * (max - min) * (max - mode));
+}
+
 export function sampleDemand(distribution) {
   switch (distribution.type) {
     case "uniform":
@@ -18,6 +28,8 @@ export function sampleDemand(distribution) {
     case "normal":
       // Negative draws map straight to 0 (no resampling).
       return Math.max(0, Math.round(randomNormal(distribution.mean, distribution.stdDev)));
+    case "triangular":
+      return Math.round(randomTriangular(distribution.min, distribution.mode, distribution.max));
     default:
       throw new Error(`Unsupported distribution type: ${distribution.type}`);
   }

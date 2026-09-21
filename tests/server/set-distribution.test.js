@@ -68,6 +68,31 @@ for (const tc of normalCases) {
   });
 }
 
+// ── TRIANGULAR: equivalence classes + boundaries (mode must sit inside [min, max]) ─
+const triangularCases = [
+  { name: "valid mid-range", body: { type: "triangular", min: 80, mode: 100, max: 140 }, status: 200 },
+  { name: "valid boundary mode = min", body: { type: "triangular", min: 80, mode: 80, max: 120 }, status: 200 },
+  { name: "valid boundary mode = max", body: { type: "triangular", min: 80, mode: 120, max: 120 }, status: 200 },
+  { name: "invalid mode < min", body: { type: "triangular", min: 80, mode: 79, max: 120 }, status: 400, error: /mode must be between/i },
+  { name: "invalid mode > max", body: { type: "triangular", min: 80, mode: 121, max: 120 }, status: 400, error: /mode must be between/i },
+  { name: "invalid boundary min = max", body: { type: "triangular", min: 100, mode: 100, max: 100 }, status: 400, error: /min cannot be higher/i },
+  { name: "invalid min < 0", body: { type: "triangular", min: -1, mode: 10, max: 20 }, status: 400, error: /less than 0/i },
+  { name: "invalid missing mode", body: { type: "triangular", min: 80, max: 120 }, status: 400, error: /must be numbers/i }
+];
+
+for (const tc of triangularCases) {
+  test(`set-distribution triangular EC/boundary — ${tc.name}`, async () => {
+    const { app, gameId, adminToken } = await freshGame();
+    const res = await request(app).post("/set-distribution").send({ gameId, adminToken, ...tc.body });
+
+    assert.equal(res.status, tc.status);
+    if (tc.error) assert.match(res.body.error, tc.error);
+    if (tc.status === 200) {
+      assert.deepEqual(res.body.distribution, tc.body);
+    }
+  });
+}
+
 test("set-distribution cannot change during an active round", async () => {
   const { app, gameId, adminToken } = await freshGame();
   await request(app).post("/start-round").send({ gameId, adminToken });
